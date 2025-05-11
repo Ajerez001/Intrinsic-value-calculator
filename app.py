@@ -59,6 +59,14 @@ if ticker:
     st.write(f"**Intrinsic Value**: ${intrinsic_value}")
 else:
     st.warning("Could not retrieve EPS or growth data. Please check the stock ticker and try again.")
+the
+    st.subheader("Results")
+    st.write(f"**EPS (TTM)**: {eps}")
+    st.write(f"**Avg Growth Rate**: {growth_rate:.2f}%")
+    st.write(f"**AAA Bond Yield**: {aaa_yield}%")
+    st.write(f"**Intrinsic Value**: ${intrinsic_value}")
+else:
+    st.warning("Could not retrieve EPS or growth data. Please check the stock ticker and try again.")
 
 
         st.subheader("Results")

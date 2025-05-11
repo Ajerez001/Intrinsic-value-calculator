@@ -1,4 +1,4 @@
-Rimport streamlit as st
+import streamlit as st
 import yfinance as yf
 import requests
 from bs4 import BeautifulSoup

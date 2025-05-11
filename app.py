@@ -48,9 +48,18 @@ if ticker:
     sws_growth = get_simply_wall_st_growth(ticker)
     aaa_yield = get_aaa_yield()
 
-    if eps and yahoo_growth:
-        growth_rate = (yahoo_growth + sws_growth) / 2
-        intrinsic_value = graham_formula(eps, growth_rate, aaa_yield)
+    if eps is not None and yahoo_growth is not None:
+    growth_rate = (yahoo_growth + sws_growth) / 2
+    intrinsic_value = graham_formula(eps, growth_rate, aaa_yield)
+
+    st.subheader("Results")
+    st.write(f"**EPS (TTM)**: {eps}")
+    st.write(f"**Avg Growth Rate**: {growth_rate:.2f}%")
+    st.write(f"**AAA Bond Yield**: {aaa_yield}%")
+    st.write(f"**Intrinsic Value**: ${intrinsic_value}")
+else:
+    st.warning("Could not retrieve EPS or growth data. Please check the stock ticker and try again.")
+
 
         st.subheader("Results")
         st.write(f"**EPS (TTM)**: {eps}")

@@ -8,18 +8,11 @@ st.title("Intrinsic Value Calculator (Graham Formula)")
 # User input for stock ticker
 ticker = st.text_input("Enter Stock Ticker (e.g., AAPL)", "")
 
-# Input for manual EPS and growth rate
+# Manual EPS and growth rate input
 st.subheader("Manual Inputs")
 
-eps_q1 = st.number_input("Enter EPS for Q1", format="%.2f")
-eps_q2 = st.number_input("Enter EPS for Q2", format="%.2f")
-eps_q3 = st.number_input("Enter EPS for Q3", format="%.2f")
-eps_q4 = st.number_input("Enter EPS for Q4", format="%.2f")
+eps_ttm = st.number_input("Enter Total EPS (TTM) from last 4 quarters", format="%.2f")
 manual_growth = st.number_input("Enter Estimated Growth Rate (%)", format="%.2f")
-
-# Calculate EPS TTM
-eps_ttm = eps_q1 + eps_q2 + eps_q3 + eps_q4
-st.write(f"EPS (TTM): {eps_ttm}")
 
 # Fetch AAA corporate bond rate from FRED
 st.subheader("AAA Corporate Bond Rate (Auto-Fetched)")
@@ -46,13 +39,13 @@ if eps_ttm > 0 and manual_growth > 0 and bond_rate > 0:
         st.write(f"Current Price: ${current_price:.2f}")
 
         if intrinsic_value > current_price * 1.2:
-            st.markdown("**Valuation: Undervalued**", unsafe_allow_html=True)
+            st.markdown("**Valuation: Undervalued**")
             st.markdown("<span style='color: green;'>Undervalued</span>", unsafe_allow_html=True)
         elif intrinsic_value < current_price * 0.8:
-            st.markdown("**Valuation: Overvalued**", unsafe_allow_html=True)
+            st.markdown("**Valuation: Overvalued**")
             st.markdown("<span style='color: red;'>Overvalued</span>", unsafe_allow_html=True)
         else:
-            st.markdown("**Valuation: Fairly Valued**", unsafe_allow_html=True)
+            st.markdown("**Valuation: Fairly Valued**")
             st.markdown("<span style='color: orange;'>Fairly Valued</span>", unsafe_allow_html=True)
     except Exception:
         st.warning("Could not fetch current stock price.")

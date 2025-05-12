@@ -13,7 +13,19 @@ if ticker:
         eps_ttm = stock.info['trailingEps']
 
         # Placeholder values for bond rate and growth
-        bond_rate = 4.4  # AAA bond rate (adjust manually or scrape later)
+        from fredapi import Fred
+
+# Get FRED API key from Streamlit secrets
+fred = Fred(api_key=st.secrets["FRED_API_KEY"])
+
+# Fetch the most recent AAA bond yield
+try:
+    bond_yield = fred.get_series_latest_release('DAAA')[-1]
+    bond_rate = round(float(bond_yield), 2)
+except Exception as e:
+    st.warning("Could not fetch bond rate from FRED. Using fallback value of 4.4%.")
+    bond_rate = 4.4
+
         growth_estimate = 10  # Estimated growth (manual placeholder)
 
         intrinsic_value = (eps_ttm * (8.5 + 2 * growth_estimate) * 4.4) / bond_rate

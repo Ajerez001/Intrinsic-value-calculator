@@ -4,94 +4,98 @@ import pandas as pd
 from fredapi import Fred
 import plotly.graph_objs as go
 
-# Title
+# Load FRED API key from secrets
+fred = Fred(api_key=st.secrets["FRED_API_KEY"])
+
 st.set_page_config(layout="wide")
-st.title("Intrinsic Value Calculator + Option Trader Snapshot")
+st.title("Intrinsic Value & Options Analysis Dashboard")
 
-# Input
-ticker = st.text_input("Enter Stock Ticker (e.g., AAPL)", "")
-
-# Get AAA bond rate from FRED
-def get_bond_rate():
-    try:
-        fred = Fred(api_key=st.secrets["FRED_API_KEY"])
-        bond_yield = fred.get_series_latest_release('DAAA')[-1]
-        return round(float(bond_yield), 2)
-    except:
-        st.warning("Could not fetch AAA bond rate. Using fallback value of 4.4%")
-        return 4.4
-
-# Calculate expected move
-def calculate_expected_move(current_price, iv, days):
-    try:
-        move = current_price * (iv / 100) * (days / 365) ** 0.5
-        return round(move, 2)
-    except:
-        return None
+ticker = st.text_input("Enter Stock Ticker (e.g., AAPL)", "").upper()
 
 if ticker:
     try:
         stock = yf.Ticker(ticker)
         info = stock.info
 
-        eps_ttm = info.get("trailingEps", None)
-        current_price = info.get("currentPrice", None)
-        growth_rate = st.number_input("Enter Estimated Growth Rate (%)", min_value=0.0, value=10.0)
-        bond_rate = get_bond_rate()
+        # Display company logo if available
+        logo_url = info.get("logo_url")
+        if logo_url:
+            st.image(logo_url, width=100)
 
-        if eps_ttm and current_price:
-            intrinsic_value = (eps_ttm * (8.5 + 2 * growth_rate) * 4.4) / bond_rate
+        # Get key financials
+        eps_ttm = info.get("trailingEps", 0)
+        shares_outstanding = info.get("sharesOutstanding", 1)
 
-            # Display results
-            st.subheader("Valuation Summary")
-            st.write(f"EPS (TTM): {eps_ttm}")
-            st.write(f"Growth Estimate: {growth_rate}%")
-            st.write(f"AAA Bond Rate: {bond_rate}%")
-            st.success(f"Intrinsic Value: ${intrinsic_value:.2f}")
-
-            # Valuation color coding
-            if intrinsic_value > current_price * 1.2:
-                st.markdown("<span style='color:green; font-weight:bold;'>Valuation: Undervalued</span>", unsafe_allow_html=True)
-            elif intrinsic_value < current_price * 0.8:
-                st.markdown("<span style='color:red; font-weight:bold;'>Valuation: Overvalued</span>", unsafe_allow_html=True)
-            else:
-                st.markdown("<span style='color:orange; font-weight:bold;'>Valuation: Fairly Valued</span>", unsafe_allow_html=True)
-        else:
-            st.warning("Missing EPS or current price data.")
-
-        # Option Trader Snapshot
-        st.subheader("Options Trading Snapshot")
-        col1, col2, col3, col4 = st.columns(4)
-
-        # Implied Volatility
-        iv = info.get("impliedVolatility", None)
-        col1.metric("Implied Volatility", f"{iv*100:.2f}%" if iv else "Not Available")
-
-        # Beta
-        beta = info.get("beta", None)
-        col2.metric("Beta", f"{beta:.2f}" if beta else "Not Available")
-
-        # Expected Move (Next 30 Days)
-        if iv and current_price:
-            move = calculate_expected_move(current_price, iv * 100, 30)
-            col3.metric("30d Expected Move", f"+/- ${move}" if move else "N/A")
-        else:
-            col3.metric("30d Expected Move", "Not Available")
-
-        # Earnings Date
+        # AAA bond rate from FRED
         try:
-            earnings = stock.calendar.loc["Earnings Date"][0].strftime("%Y-%m-%d")
-        except:
-            earnings = "Not Available"
-        col4.metric("Next Earnings", earnings)
+            bond_yield = fred.get_series_latest_release('DAAA')[-1]
+            bond_rate = round(float(bond_yield), 2)
+        except Exception:
+            st.warning("Could not fetch bond rate from FRED. Using fallback 4.4%")
+            bond_rate = 4.4
 
-        # Live Chart
-        st.subheader("Live Price Chart")
-        hist = stock.history(period="6mo")
+        # Growth input by user
+        growth_input = st.number_input("Enter Estimated Growth Rate (%)", min_value=0.0, max_value=50.0, value=10.0)
+
+        # Graham intrinsic value formula
+        intrinsic_value = (eps_ttm * (8.5 + 2 * growth_input) * 4.4) / bond_rate
+        current_price = info.get("currentPrice", 0)
+
+        # Display valuation
+        st.subheader("Valuation Analysis")
+        col1, col2 = st.columns(2)
+        col1.metric("EPS (TTM)", f"${eps_ttm:.2f}")
+        col2.metric("AAA Bond Rate", f"{bond_rate:.2f}%")
+
+        st.write(f"Estimated Growth Rate: {growth_input}%")
+
+        # Color-coded intrinsic value status
+        if intrinsic_value > current_price * 1.2:
+            color = "green"
+            status = "Undervalued"
+        elif intrinsic_value < current_price * 0.8:
+            color = "red"
+            status = "Overvalued"
+        else:
+            color = "orange"
+            status = "Fairly Valued"
+
+        st.markdown(f"<h3 style='color:{color}'>Intrinsic Value: ${intrinsic_value:.2f} — {status}</h3>", unsafe_allow_html=True)
+
+        # Historical chart
+        st.subheader("Live Market Chart")
+        hist = stock.history(period="1y")
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], mode='lines', name='Close Price'))
-        fig.update_layout(title=f"{ticker.upper()} Price History", xaxis_title="Date", yaxis_title="Price")
+        fig.add_trace(go.Scatter(x=hist.index, y=hist["Close"], mode="lines", name="Close"))
+        fig.update_layout(title=f"{ticker} Stock Price (1Y)", xaxis_title="Date", yaxis_title="Price")
         st.plotly_chart(fig, use_container_width=True)
 
+        # Options Trading Snapshot
+        st.subheader("Options Trading Snapshot")
+        beta = info.get("beta")
+        iv = info.get("impliedVolatility")
+        next_earnings = info.get("earningsDate")
+
+        if beta:
+            st.write(f"**Beta:** {beta}")
+        else:
+            st.write("**Beta:** Not available")
+
+        if iv:
+            st.write(f"**Implied Volatility (IV):** {iv:.2%}")
+        else:
+            st.write("**Implied Volatility (IV):** Not available")
+
+        if current_price and iv:
+            expected_move = current_price * iv * (1 / 12)**0.5
+            st.write(f"**Expected Monthly Move:** ${expected_move:.2f}")
+        else:
+            st.write("**Expected Monthly Move:** Not available")
+
+        if next_earnings:
+            st.write(f"**Next Earnings Date:** {next_earnings}")
+        else:
+            st.write("**Next Earnings Date:** Not available")
+
     except Exception as e:
-        st.error(f"Error loading data: {e}")
+        st.error(f"Could not retrieve data. Error: {e}")

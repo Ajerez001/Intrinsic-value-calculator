@@ -3,4 +3,5 @@ yfinance
 pandas
 fredapi
 plotly
-numpy
+request
+beautifulsoup4

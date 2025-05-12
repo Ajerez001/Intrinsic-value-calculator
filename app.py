@@ -25,12 +25,8 @@ if ticker:
             st.warning("Could not fetch bond rate from FRED. Using fallback value of 4.4%.")
             bond_rate = 4.4
 
-        # User inputs
-        col1, col2 = st.columns(2)
-        with col1:
-            growth_estimate = st.number_input("Enter Estimated Growth Rate (%)", min_value=0.0, max_value=100.0, value=10.0, step=0.1)
-        with col2:
-            user_notes = st.text_area("Your Notes / Assumptions", placeholder="E.g. Stable earnings, good moat, solid ROE")
+        # User input: growth rate
+        growth_estimate = st.number_input("Enter Estimated Growth Rate (%)", min_value=0.0, max_value=100.0, value=10.0, step=0.1)
 
         # Graham formula
         intrinsic_value = (eps_ttm * (8.5 + 2 * growth_estimate) * 4.4) / bond_rate
@@ -56,14 +52,13 @@ if ticker:
 
         st.markdown(f"<h3 style='color:{color}'>{value_status}</h3>", unsafe_allow_html=True)
 
-        # Chart: Intrinsic vs Current
+        # Line chart comparing Intrinsic Value and Current Price
+        st.subheader("Intrinsic vs. Market Price")
         chart_df = pd.DataFrame({
-            'Value Type': ['Intrinsic Value', 'Current Price'],
-            'Price': [intrinsic_value, current_price]
+            'Metric': ['Intrinsic Value', 'Current Price'],
+            'Value': [intrinsic_value, current_price]
         })
-
-        st.subheader("Value Comparison")
-        st.bar_chart(chart_df.set_index('Value Type'))
+        st.line_chart(chart_df.set_index('Metric'))
 
     except Exception as e:
         st.error(f"Could not retrieve data. Error: {e}")

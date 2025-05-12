@@ -21,23 +21,6 @@ def get_company_logo(ticker, company_name):
         pass
     return "https://upload.wikimedia.org/wikipedia/commons/a/ac/No_image_available.svg"
 
-# Sidebar chart settings
-st.sidebar.header("Chart Settings")
-theme = st.sidebar.radio("Select Theme", ("Dark", "Light"))
-period = st.sidebar.selectbox("Timeframe", ["1d", "5d", "1mo", "6mo", "ytd", "1y", "5y", "max"])
-interval_options = {
-    "1d": ["1m", "5m", "15m"],
-    "5d": ["5m", "15m", "30m"],
-    "1mo": ["30m", "1h", "1d"],
-    "6mo": ["1d", "1wk"],
-    "ytd": ["1d", "1wk"],
-    "1y": ["1d", "1wk"],
-    "5y": ["1wk", "1mo"],
-    "max": ["1mo"]
-}
-interval = st.sidebar.selectbox("Interval", interval_options[period])
-
-# Main input
 ticker = st.text_input("Enter Stock Ticker (e.g., AAPL)", "").upper()
 
 if ticker:
@@ -48,16 +31,16 @@ if ticker:
         eps_ttm = info.get("trailingEps", None)
         current_price = info.get("currentPrice", 0)
 
-        # Company logo
+        # Logo
         logo_url = get_company_logo(ticker, company_name)
         st.image(logo_url, width=100, caption=company_name)
 
-        # Growth rate input
+        # Growth input
         if eps_ttm is None or eps_ttm <= 0:
             raise ValueError("EPS is unavailable or invalid.")
         growth_rate = st.number_input("Enter Estimated Growth Rate (%)", min_value=0.0, max_value=100.0, value=10.0)
 
-        # AAA bond yield
+        # AAA bond yield from FRED
         fred = Fred(api_key=st.secrets["FRED_API_KEY"])
         try:
             bond_yield = fred.get_series_latest_release('DAAA')[-1]
@@ -66,7 +49,7 @@ if ticker:
             st.warning("Could not fetch bond rate. Using fallback value of 4.4%.")
             bond_rate = 4.4
 
-        # Intrinsic value calc
+        # Intrinsic value
         intrinsic_value = (eps_ttm * (8.5 + 2 * growth_rate) * 4.4) / bond_rate
         if intrinsic_value > current_price * 1.1:
             color = "green"
@@ -85,25 +68,24 @@ if ticker:
         st.markdown(f"**Intrinsic Value:** ${intrinsic_value:.2f}")
         st.markdown(f"<span style='color:{color}; font-size: 20px'><strong>{valuation_msg}</strong></span>", unsafe_allow_html=True)
 
-        # Live Chart
+        # Live Chart (Robinhood Style)
         st.subheader("Live Market Chart")
-        hist = stock.history(period=period, interval=interval)
+        hist = stock.history(period="5d", interval="5m")
         fig = go.Figure()
-        line_color = "#00C805" if theme == "Dark" else "#0055ff"
 
         fig.add_trace(go.Scatter(
             x=hist.index,
             y=hist["Close"],
             mode='lines',
-            line=dict(color=line_color, width=2),
+            line=dict(color="#00C805", width=2),
             hoverinfo='x+y',
             name=ticker
         ))
 
         fig.update_layout(
-            template="plotly_dark" if theme == "Dark" else "plotly_white",
+            template="plotly_dark",
             plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)' if theme == "Dark" else 'white',
+            paper_bgcolor='rgba(0,0,0,0)',
             xaxis=dict(title="", showgrid=False),
             yaxis=dict(title="Price", showgrid=False),
             margin=dict(l=0, r=0, t=30, b=20),
@@ -112,7 +94,7 @@ if ticker:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # Options Trading Snapshot
+        # Options Snapshot
         st.subheader("Options Trading Snapshot")
         iv = info.get("impliedVolatility", None)
         beta = info.get("beta", None)

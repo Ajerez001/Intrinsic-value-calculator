@@ -7,12 +7,11 @@ import datetime
 import requests
 
 # Setup
-st.set_page_config(page_title="Intrinsic Value & Options Snapshot", layout="wide")
-st.title("📈 Stock Valuation & Options Trading Snapshot")
+st.set_page_config(page_title="Stock Valuation & Options Snapshot", layout="wide")
+st.title("Stock Valuation & Options Trading Snapshot")
 
 # Helper: Get company logo
 def get_company_logo(ticker, company_name):
-    # Try Clearbit first
     domain = company_name.lower().split(" ")[0] + ".com"
     clearbit_url = f"https://logo.clearbit.com/{domain}"
     try:
@@ -31,7 +30,6 @@ def get_company_logo(ticker, company_name):
     except:
         pass
 
-    # Final fallback: placeholder image
     return "https://upload.wikimedia.org/wikipedia/commons/a/ac/No_image_available.svg"
 
 # Input
@@ -65,7 +63,7 @@ if ticker:
             st.warning("Could not fetch bond rate. Using fallback value of 4.4%.")
             bond_rate = 4.4
 
-        # Intrinsic Value Calculation (Graham Formula)
+        # Intrinsic Value Calculation
         intrinsic_value = (eps_ttm * (8.5 + 2 * growth_rate) * 4.4) / bond_rate
 
         # Color-coded Valuation
@@ -80,7 +78,7 @@ if ticker:
             valuation_msg = "Fairly Valued"
 
         # Display Intrinsic Valuation
-        st.subheader("💰 Intrinsic Valuation")
+        st.subheader("Intrinsic Valuation")
         st.markdown(f"**EPS (TTM):** {eps_ttm}")
         st.markdown(f"**Growth Rate:** {growth_rate}%")
         st.markdown(f"**AAA Bond Yield:** {bond_rate}%")
@@ -88,14 +86,14 @@ if ticker:
         st.markdown(f"<span style='color:{color}; font-size: 20px'><strong>{valuation_msg}</strong></span>", unsafe_allow_html=True)
 
         # Live Intraday Chart
-        st.subheader("📊 Live Market Chart")
+        st.subheader("Live Market Chart")
         hist = stock.history(period="5d", interval="5m")
         fig = go.Figure(data=[go.Scatter(x=hist.index, y=hist["Close"], mode="lines", name=ticker)])
         fig.update_layout(title=f"{ticker} - Last 5 Days (5m Interval)", xaxis_title="Date", yaxis_title="Price", height=400)
         st.plotly_chart(fig, use_container_width=True)
 
         # Options Snapshot
-        st.subheader("🧠 Options Trading Snapshot")
+        st.subheader("Options Trading Snapshot")
         iv = info.get("impliedVolatility", None)
         beta = info.get("beta", None)
         earnings_date = info.get("earningsDate", None)

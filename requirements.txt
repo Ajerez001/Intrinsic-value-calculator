@@ -1,7 +1,7 @@
 streamlit
 yfinance
 pandas
-fredapi
-plotly
-request
 beautifulsoup4
+plotly
+requests
+fredapi

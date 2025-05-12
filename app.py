@@ -23,32 +23,35 @@ if ticker:
             bond_rate = 4.4
 
         # --- Get Yahoo growth estimate ---
-        yahoo_url = f"https://finance.yahoo.com/quote/{ticker}/analysis"
-        yahoo_response = requests.get(yahoo_url, headers={"User-Agent": "Mozilla/5.0"})
-        yahoo_soup = BeautifulSoup(yahoo_response.text, 'html.parser')
         yahoo_growth = None
         try:
+            yahoo_url = f"https://finance.yahoo.com/quote/{ticker}/analysis"
+            yahoo_response = requests.get(yahoo_url, headers={"User-Agent": "Mozilla/5.0"})
+            yahoo_soup = BeautifulSoup(yahoo_response.text, 'html.parser')
             td_tags = yahoo_soup.find_all("td")
             for i, tag in enumerate(td_tags):
                 if "Next Year" in tag.text:
-                    yahoo_growth = float(td_tags[i + 1].text.replace('%', '').strip())
+                    value_text = td_tags[i + 1].text.strip().replace('%', '')
+                    yahoo_growth = float(value_text)
                     break
-        except:
-            pass
+            st.write(f"Yahoo growth estimate: {yahoo_growth}%")
+        except Exception as e:
+            st.warning(f"Failed to get Yahoo growth: {e}")
 
         # --- Get Simply Wall St growth forecast ---
-        sws_url = f"https://simplywall.st/stocks/us/{ticker.lower()}"
-        sws_response = requests.get(sws_url, headers={"User-Agent": "Mozilla/5.0"})
-        sws_soup = BeautifulSoup(sws_response.text, 'html.parser')
         sws_growth = None
         try:
+            sws_url = f"https://simplywall.st/stocks/us/{ticker.lower()}"
+            sws_response = requests.get(sws_url, headers={"User-Agent": "Mozilla/5.0"})
+            sws_soup = BeautifulSoup(sws_response.text, 'html.parser')
             for tag in sws_soup.find_all("p"):
                 if "Earnings are forecast" in tag.text:
                     percent_text = tag.text.split("grow")[1].split("%")[0]
                     sws_growth = float(percent_text.strip())
                     break
-        except:
-            pass
+            st.write(f"Simply Wall St growth estimate: {sws_growth}%")
+        except Exception as e:
+            st.warning(f"Failed to get Simply Wall St growth: {e}")
 
         # Combine both growth estimates
         if yahoo_growth and sws_growth:
@@ -59,11 +62,12 @@ if ticker:
             growth_rate = sws_growth
         else:
             growth_rate = 10  # fallback
+            st.warning("Using fallback growth estimate of 10%.")
 
         intrinsic_value = (eps_ttm * (8.5 + 2 * growth_rate) * 4.4) / bond_rate
 
         st.write(f"EPS (TTM): {eps_ttm}")
-        st.write(f"Estimated Growth Rate: {growth_rate:.2f}%")
+        st.write(f"Estimated Growth Rate Used: {growth_rate:.2f}%")
         st.write(f"AAA Bond Rate: {bond_rate}%")
         st.success(f"Intrinsic Value: ${intrinsic_value:.2f}")
 

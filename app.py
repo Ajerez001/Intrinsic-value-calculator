@@ -17,7 +17,6 @@ if ticker:
 
 # Get FRED API key from Streamlit secrets
 fred = Fred(api_key=st.secrets["FRED_API_KEY"])
-
 # Fetch the most recent AAA bond yield
 try:
     bond_yield = fred.get_series_latest_release('DAAA')[-1]

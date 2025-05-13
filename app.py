@@ -26,13 +26,16 @@ def fetch_stock_info(ticker):
         daily_change = current_price - previous_close
         percent_change = (daily_change / previous_close) * 100 if previous_close else 0
 
-        earnings = stock.calendar
         earnings_date = "N/A"
-        try:
-            if not earnings.empty and 'Earnings Date' in earnings.index:
-                earnings_date = earnings.loc['Earnings Date'][0].strftime('%Y-%m-%d')
-        except:
-            pass
+        earnings = stock.calendar
+
+        if hasattr(earnings, "index") and "Earnings Date" in earnings.index:
+            try:
+                earnings_date_val = earnings.loc["Earnings Date"]
+                if hasattr(earnings_date_val[0], "strftime"):
+                    earnings_date = earnings_date_val[0].strftime('%Y-%m-%d')
+            except:
+                pass
 
         return {
             "name": name,

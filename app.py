@@ -1,7 +1,6 @@
 import streamlit as st
 import yfinance as yf
 from fredapi import Fred
-import requests
 import datetime
 
 # FRED API Key
@@ -12,19 +11,19 @@ fred = Fred(api_key=FRED_API_KEY)
 def get_aaa_corp_bond_rate():
     try:
         data = fred.get_series_latest_release('AAA')
-        return round(data[-1], 4)
+        return round(data[-1] / 100, 4)  # Convert to decimal
     except Exception as e:
         st.error(f"Error loading AAA corporate bond rate: {e}")
         return None
 
-# Intrinsic value calculation
+# Intrinsic value calculation using EPS (per share)
 def calculate_intrinsic_value(eps, growth_rate, discount_rate, years=10):
-    intrinsic_value = 0
+    intrinsic_value_per_share = 0
     for year in range(1, years + 1):
-        future_eps = eps * (1 + growth_rate) ** year
-        discounted_eps = future_eps / (1 + discount_rate) ** year
-        intrinsic_value += discounted_eps
-    return round(intrinsic_value, 2)
+        future_eps = eps * ((1 + growth_rate) ** year)
+        discounted_eps = future_eps / ((1 + discount_rate) ** year)
+        intrinsic_value_per_share += discounted_eps
+    return round(intrinsic_value_per_share, 2)
 
 # App title and input
 st.title("Intrinsic Value Calculator")
@@ -41,30 +40,33 @@ if ticker:
         st.write(f"**Current Price:** ${info.get('currentPrice', 'N/A')}")
         st.write(f"**Next Earnings Date:** {info.get('earningsDate', ['N/A'])[0]}")
 
-        # Input for EPS (last 4 quarters total)
-        eps_input = st.number_input("Enter EPS total from last 4 quarters", min_value=0.0, value=2.0)
+        # EPS (last 4 quarters total)
+        eps_input = st.number_input("Enter EPS total from last 4 quarters", min_value=0.0, value=2.99)
 
-        # Input for growth rate
-        growth_input = st.number_input("Expected annual EPS growth rate (e.g., 0.08 for 8%)", min_value=0.0, max_value=1.0, value=0.08)
+        # Growth rate in % (user enters 8 for 8%)
+        growth_input_pct = st.number_input("Expected annual EPS growth rate (%)", min_value=0.0, max_value=100.0, value=8.0)
+        growth_input = growth_input_pct / 100  # Convert to decimal
 
-        # Get AAA bond rate as discount rate
+        # Get discount rate from AAA corporate bond
         discount_rate = get_aaa_corp_bond_rate()
         if discount_rate:
             st.write(f"**Discount Rate (AAA Corporate Bond):** {discount_rate * 100:.2f}%")
 
             # Calculate intrinsic value
             intrinsic_value = calculate_intrinsic_value(eps_input, growth_input, discount_rate)
-
             st.success(f"**Intrinsic Value (per share):** ${intrinsic_value}")
 
-            # Fair value range
-            margin_threshold = intrinsic_value * 0.8
-            st.info(f"**Buy Price (20% Margin of Safety):** ${margin_threshold:.2f}")
-            if info.get("currentPrice") and info["currentPrice"] < margin_threshold:
-                st.success("This stock is trading at or below its fair value range.")
-            else:
-                st.warning("This stock is not currently trading at a discount.")
+            # Fair value range (20% margin of safety)
+            fair_value_threshold = intrinsic_value * 0.8
+            st.info(f"**Buy Price (20% Margin of Safety):** ${fair_value_threshold:.2f}")
+
+            current_price = info.get("currentPrice")
+            if current_price:
+                if current_price < fair_value_threshold:
+                    st.success("This stock is trading at or below its fair value range.")
+                else:
+                    st.warning("This stock is not currently trading at a discount.")
         else:
-            st.error("Could not retrieve AAA bond rate.")
+            st.error("Failed to retrieve discount rate.")
     except Exception as e:
         st.error(f"Error fetching stock info: {e}")

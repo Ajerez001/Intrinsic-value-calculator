@@ -1,120 +1,70 @@
 import streamlit as st
 import yfinance as yf
-import pandas as pd
-import requests
 from fredapi import Fred
-from datetime import datetime
+import requests
+import datetime
 
-# --- Set page config ---
-st.set_page_config(page_title="Intrinsic Value Calculator", layout="wide")
+# FRED API Key
+FRED_API_KEY = "ef227271f5aef3df5c1a8970d24aabc2"
+fred = Fred(api_key=FRED_API_KEY)
 
-# --- Function to fetch AAA bond rate from FRED ---
-def get_aaa_bond_rate():
+# Function to get AAA corporate bond rate
+def get_aaa_corp_bond_rate():
     try:
-        fred = Fred(api_key=st.secrets["FRED_API_KEY"])
-        data = fred.get_series("DAAA")
-        latest_rate = data.dropna().iloc[-1] / 100
-        return latest_rate
+        data = fred.get_series_latest_release('AAA')
+        return round(data[-1], 4)
     except Exception as e:
-        st.warning(f"Failed to fetch AAA bond rate: {e}")
-        return 0.065  # fallback default rate
+        st.error(f"Error loading AAA corporate bond rate: {e}")
+        return None
 
-# --- Function to calculate intrinsic value using a DCF-like model ---
+# Intrinsic value calculation
 def calculate_intrinsic_value(eps, growth_rate, discount_rate, years=10):
     intrinsic_value = 0
     for year in range(1, years + 1):
-        future_eps = eps * ((1 + growth_rate) ** year)
-        discounted_eps = future_eps / ((1 + discount_rate) ** year)
+        future_eps = eps * (1 + growth_rate) ** year
+        discounted_eps = future_eps / (1 + discount_rate) ** year
         intrinsic_value += discounted_eps
     return round(intrinsic_value, 2)
 
-# --- Function to fetch stock info and logo ---
-def get_stock_info(ticker):
+# App title and input
+st.title("Intrinsic Value Calculator")
+
+ticker = st.text_input("Enter stock ticker (e.g., AAPL)").upper()
+
+if ticker:
     try:
         stock = yf.Ticker(ticker)
         info = stock.info
-        return {
-            "longName": info.get("longName", ""),
-            "logo_url": info.get("logo_url", ""),
-            "currentPrice": info.get("currentPrice", None),
-            "previousClose": info.get("previousClose", None),
-            "earningsDate": info.get("earningsDate", None),
-        }
-    except Exception as e:
-        st.error(f"Error fetching stock info: {e}")
-        return {}
 
-# --- Function to fetch earnings history using RapidAPI Yahoo Finance endpoint ---
-def get_earnings_history(ticker):
-    url = f"https://yh-finance.p.rapidapi.com/stock/v3/get-earnings?symbol={ticker}"
-    headers = {
-        "X-RapidAPI-Key": st.secrets["RAPIDAPI_KEY"],
-        "X-RapidAPI-Host": "yh-finance.p.rapidapi.com"
-    }
+        st.image(info.get("logo_url", ""), width=100)
+        st.subheader(f"{info.get('shortName', '')} ({ticker})")
+        st.write(f"**Current Price:** ${info.get('currentPrice', 'N/A')}")
+        st.write(f"**Next Earnings Date:** {info.get('earningsDate', ['N/A'])[0]}")
 
-    try:
-        response = requests.get(url, headers=headers)
-        data = response.json()
-        earnings = data.get("earningsChart", {}).get("quarterly", [])
-        if not earnings:
-            return pd.DataFrame()
-        df = pd.DataFrame(earnings)
-        df["date"] = pd.to_datetime(df["date"])
-        df.rename(columns={"actual": "EPS Actual", "estimate": "EPS Estimate"}, inplace=True)
-        return df[["date", "EPS Actual", "EPS Estimate"]]
-    except Exception as e:
-        st.warning(f"Error loading earnings history: {e}")
-        return pd.DataFrame()
+        # Input for EPS (last 4 quarters total)
+        eps_input = st.number_input("Enter EPS total from last 4 quarters", min_value=0.0, value=2.0)
 
-# --- UI Layout ---
-st.title("Intrinsic Value Calculator")
-ticker = st.text_input("Enter Stock Ticker (e.g., AAPL):").upper()
+        # Input for growth rate
+        growth_input = st.number_input("Expected annual EPS growth rate (e.g., 0.08 for 8%)", min_value=0.0, max_value=1.0, value=0.08)
 
-if ticker:
-    stock_info = get_stock_info(ticker)
+        # Get AAA bond rate as discount rate
+        discount_rate = get_aaa_corp_bond_rate()
+        if discount_rate:
+            st.write(f"**Discount Rate (AAA Corporate Bond):** {discount_rate * 100:.2f}%")
 
-    if stock_info.get("longName"):
-        col1, col2 = st.columns([1, 4])
-        with col1:
-            if stock_info.get("logo_url"):
-                st.image(stock_info["logo_url"], width=75)
-        with col2:
-            st.subheader(f"{stock_info['longName']} ({ticker})")
+            # Calculate intrinsic value
+            intrinsic_value = calculate_intrinsic_value(eps_input, growth_input, discount_rate)
 
-        # Display current price and earnings date
-        price = stock_info.get("currentPrice")
-        if price:
-            st.metric("Current Price", f"${price:.2f}")
-        if stock_info.get("earningsDate"):
-            st.write("Next Earnings Date:", stock_info["earningsDate"])
-
-        st.markdown("---")
-
-        # --- Manual inputs ---
-        total_eps = st.number_input("Enter total EPS for the last 4 quarters:", min_value=0.0, step=0.01)
-        growth_rate = st.number_input("Expected annual EPS growth rate (e.g., 12% = 0.12):", min_value=0.0, step=0.01)
-
-        # --- Fetch discount rate ---
-        discount_rate = get_aaa_bond_rate()
-        st.write(f"Using AAA Corporate Bond Rate as Discount Rate: **{discount_rate * 100:.2f}%**")
-
-        # --- Calculate intrinsic value ---
-        if total_eps and growth_rate:
-            intrinsic_value = calculate_intrinsic_value(total_eps, growth_rate, discount_rate)
-            st.success(f"Intrinsic Value: **${intrinsic_value:.2f}**")
+            st.success(f"**Intrinsic Value (per share):** ${intrinsic_value}")
 
             # Fair value range
-            margin_of_safety = 0.20
-            buy_below_price = intrinsic_value * (1 - margin_of_safety)
-            st.info(f"Fair Value Range: Buy only if price is **below ${buy_below_price:.2f}** (20% margin of safety)")
-
-        # --- Earnings History Section ---
-        st.markdown("---")
-        st.subheader("Earnings History")
-        earnings_df = get_earnings_history(ticker)
-        if not earnings_df.empty:
-            st.dataframe(earnings_df.sort_values("date", ascending=False).reset_index(drop=True), use_container_width=True)
+            margin_threshold = intrinsic_value * 0.8
+            st.info(f"**Buy Price (20% Margin of Safety):** ${margin_threshold:.2f}")
+            if info.get("currentPrice") and info["currentPrice"] < margin_threshold:
+                st.success("This stock is trading at or below its fair value range.")
+            else:
+                st.warning("This stock is not currently trading at a discount.")
         else:
-            st.write("No earnings history available.")
-    else:
-        st.error("Could not fetch valid stock data. Please check the ticker.")
+            st.error("Could not retrieve AAA bond rate.")
+    except Exception as e:
+        st.error(f"Error fetching stock info: {e}")

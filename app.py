@@ -1,4 +1,4 @@
- import streamlit as st
+import streamlit as st
 import yfinance as yf
 from fredapi import Fred
 

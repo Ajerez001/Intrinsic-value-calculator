@@ -1,51 +1,60 @@
 import streamlit as st
 import yfinance as yf
-from fredapi import Fred
+import requests
+from datetime import datetime
+import pandas as pd
 
-# App title
-st.title("Intrinsic Value Calculator (Graham Formula)")
+st.set_page_config(page_title="Stock Snapshot", layout="wide")
 
-# User input for stock ticker
-ticker = st.text_input("Enter Stock Ticker (e.g., AAPL)", "")
+st.title("Intrinsic Value & Option Snapshot")
 
-# Manual EPS and growth rate input
-st.subheader("Manual Inputs")
+# Input
+ticker = st.text_input("Enter Ticker Symbol", value="AAPL").upper()
 
-eps_ttm = st.number_input("Enter Total EPS (TTM) from last 4 quarters", format="%.2f")
-manual_growth = st.number_input("Enter Estimated Growth Rate (%)", format="%.2f")
-
-# Fetch AAA corporate bond rate from FRED
-st.subheader("AAA Corporate Bond Rate (Auto-Fetched)")
-
-try:
-    fred = Fred(api_key=st.secrets["FRED_API_KEY"])
-    bond_yield = fred.get_series_latest_release('DAAA')[-1]
-    bond_rate = round(float(bond_yield), 2)
-    st.success(f"AAA Bond Rate: {bond_rate}%")
-except Exception as e:
-    bond_rate = st.number_input("Enter Bond Rate (%)", format="%.2f")
-    st.warning("Could not fetch bond rate from FRED. Please enter manually.")
-
-# Calculate intrinsic value using Graham formula
-if eps_ttm > 0 and manual_growth > 0 and bond_rate > 0:
-    intrinsic_value = (eps_ttm * (8.5 + 2 * manual_growth) * 4.4) / bond_rate
-    st.subheader("Intrinsic Value Result")
-    st.success(f"Intrinsic Value: ${intrinsic_value:.2f}")
-
-    # Valuation color indicator
+if ticker:
     try:
         stock = yf.Ticker(ticker)
-        current_price = stock.info['currentPrice']
-        st.write(f"Current Price: ${current_price:.2f}")
+        info = stock.info
 
-        if intrinsic_value > current_price * 1.2:
-            st.markdown("**Valuation: Undervalued**")
-            st.markdown("<span style='color: green;'>Undervalued</span>", unsafe_allow_html=True)
-        elif intrinsic_value < current_price * 0.8:
-            st.markdown("**Valuation: Overvalued**")
-            st.markdown("<span style='color: red;'>Overvalued</span>", unsafe_allow_html=True)
-        else:
-            st.markdown("**Valuation: Fairly Valued**")
-            st.markdown("<span style='color: orange;'>Fairly Valued</span>", unsafe_allow_html=True)
-    except Exception:
-        st.warning("Could not fetch current stock price.")
+        # Fetch current price and daily change
+        todays_data = stock.history(period='1d')
+        price = todays_data['Close'][0]
+        prev_close = todays_data['Close'][0] - todays_data['Close'][0] * info['regularMarketChangePercent'] / 100
+        change = price - prev_close
+        change_percent = info['regularMarketChangePercent']
+        price_color = "green" if change > 0 else "red"
+
+        # Earnings date
+        earnings = stock.calendar
+        earnings_date = earnings.loc['Earnings Date'][0] if 'Earnings Date' in earnings.index else "N/A"
+
+        # Fetch logo using Clearbit fallback
+        company_name = info.get('shortName', ticker)
+        domain_lookup = f"https://autocomplete.clearbit.com/v1/companies/suggest?query={company_name}"
+        logo_url = None
+        try:
+            logo_response = requests.get(domain_lookup)
+            if logo_response.status_code == 200:
+                data = logo_response.json()
+                if data:
+                    logo_url = data[0].get("logo")
+        except Exception:
+            pass
+
+        # Layout
+        col1, col2 = st.columns([1, 6])
+        with col1:
+            if logo_url:
+                st.image(logo_url, width=64)
+        with col2:
+            st.markdown(f"### **{company_name}** ({ticker})")
+            st.markdown(
+                f"<h3 style='margin: 0;'>${price:,.2f} "
+                f"<span style='color:{price_color}; font-size: 0.8em;'>"
+                f"{change:+.2f} ({change_percent:+.2f}%)</span></h3>",
+                unsafe_allow_html=True
+            )
+            st.markdown(f"**Earnings Date:** {earnings_date.strftime('%b %d, %Y') if earnings_date != 'N/A' else 'N/A'}")
+
+    except Exception as e:
+        st.error(f"Could not load data for {ticker}. Error: {str(e)}")

@@ -1,122 +1,112 @@
-import streamlit as st
+ import streamlit as st
 import yfinance as yf
-from fredapi import Fred
+import requests
+import pandas as pd
 
-# FRED API Key
+# --- Constants ---
 FRED_API_KEY = "ef227271f5aef3df5c1a8970d24aabc2"
+FMP_API_KEY = "ZYWFtyBgxO0qoNNAMMiCDDc2TIdoIQWt"
 
-st.set_page_config(page_title="Intrinsic Value Calculator", layout="centered")
-st.title("Intrinsic Value Calculator")
-
-# --------- FUNCTIONS ---------
-
-def fetch_stock_info(ticker):
-    stock = yf.Ticker(ticker)
+# --- Get AAA Corporate Bond Rate ---
+def get_aaa_bond_rate():
+    url = f"https://api.stlouisfed.org/fred/series/observations?series_id=DAAA&api_key={FRED_API_KEY}&file_type=json"
     try:
+        response = requests.get(url)
+        data = response.json()
+        last_entry = data["observations"][-1]
+        return float(last_entry["value"]) / 100
+    except Exception as e:
+        st.error(f"Error fetching bond rate: {e}")
+        return 0.04
+
+# --- Intrinsic Value Calculation ---
+def calculate_intrinsic_value(eps, growth_rate, bond_rate):
+    try:
+        intrinsic_value = eps * (8.5 + 2 * growth_rate) * 4.4 / (bond_rate * 100)
+        return round(intrinsic_value, 2)
+    except Exception as e:
+        st.error(f"Error in intrinsic value calculation: {e}")
+        return 0
+
+# --- Fetch Stock Info ---
+def get_stock_info(ticker):
+    try:
+        stock = yf.Ticker(ticker)
         info = stock.info
-        logo_url = info.get("logo_url", "")
-        name = info.get("longName", ticker.upper())
-        current_price = info.get("currentPrice", 0.0)
-        previous_close = info.get("previousClose", current_price)
-        change = current_price - previous_close
-        percent_change = (change / previous_close) * 100 if previous_close else 0
-
-        earnings_date = "N/A"
-        try:
-            cal = info.get("earningsDate")
-            if isinstance(cal, (str, float, int)):
-                earnings_date = str(cal)
-            elif isinstance(cal, list) and len(cal) > 0:
-                earnings_date = str(cal[0])
-        except:
-            earnings_date = "N/A"
-
         return {
-            "name": name,
-            "ticker": ticker.upper(),
-            "price": current_price,
-            "change": change,
-            "percent_change": percent_change,
-            "earnings_date": earnings_date,
-            "logo": logo_url
+            "name": info.get("shortName", "N/A"),
+            "price": info.get("regularMarketPrice", 0),
+            "logo_url": info.get("logo_url", ""),
+            "previous_close": info.get("regularMarketPreviousClose", 0),
+            "earnings_date": info.get("earningsDate", "N/A")
         }
     except Exception as e:
         st.error(f"Error fetching stock info: {e}")
         return None
 
-def get_discount_rate():
+# --- FMP Earnings History ---
+def get_earnings_history_fmp(ticker, api_key):
+    url = f"https://financialmodelingprep.com/api/v3/historical/earning_calendar/{ticker}?limit=6&apikey={api_key}"
     try:
-        fred = Fred(api_key=FRED_API_KEY)
-        rate = fred.get_series_latest_release('AAA').iloc[-1] / 100
-        return round(rate, 4)
-    except:
-        return 0.045
+        response = requests.get(url)
+        if response.status_code == 200:
+            return response.json()
+        return None
+    except Exception as e:
+        st.error(f"Error loading earnings history: {e}")
+        return None
 
-def calculate_intrinsic_value(avg_eps, growth_rate, discount_rate, years=5):
-    intrinsic_value = 0
-    for i in range(1, years + 1):
-        future_eps = avg_eps * ((1 + growth_rate) ** i)
-        intrinsic_value += future_eps / ((1 + discount_rate) ** i)
-    return round(intrinsic_value, 2)
+# --- Streamlit UI ---
+st.set_page_config(page_title="Intrinsic Value Calculator", layout="wide")
+st.title("Intrinsic Value Calculator")
 
-# --------- APP LAYOUT ---------
+# --- Input Section ---
+ticker_input = st.text_input("Enter Stock Ticker (e.g., AAPL)", value="AAPL").upper()
 
-ticker_input = st.text_input("Enter Stock Ticker", value="AAPL")
-
+# --- Show Stock Info ---
 if ticker_input:
-    stock = fetch_stock_info(ticker_input)
+    stock_info = get_stock_info(ticker_input)
 
-    if stock:
-        col1, col2 = st.columns([1, 3])
+    if stock_info:
+        col1, col2 = st.columns([1, 5])
         with col1:
-            if stock["logo"]:
-                st.image(stock["logo"], width=60)
+            if stock_info["logo_url"]:
+                st.image(stock_info["logo_url"], width=80)
         with col2:
-            st.subheader(f"{stock['name']} ({stock['ticker']})")
-            st.markdown(f"**Price:** ${stock['price']:.2f} ({stock['percent_change']:+.2f}%)")
-            st.markdown(f"**Next Earnings Date:** {stock['earnings_date']}")
-
-        # Earnings History Table
-        st.markdown("### Earnings History")
-        try:
-            ed = yf.Ticker(ticker_input).earnings_dates
-            if not ed.empty:
-                ed = ed.head(6)
-                required_cols = ["EPS Actual", "EPS Estimate", "Surprise(%)"]
-                if all(col in ed.columns for col in required_cols):
-                    ed = ed[required_cols]
-                    ed.columns = ["EPS Actual", "EPS Estimate", "Surprise (%)"]
-                    st.dataframe(ed)
-                else:
-                    st.info("Earnings history data not available for this ticker.")
-            else:
-                st.info("No recent earnings history available.")
-        except Exception as e:
-            st.error(f"Error loading earnings history: {e}")
+            st.subheader(f"{stock_info['name']} ({ticker_input})")
+            st.markdown(f"**Current Price:** ${stock_info['price']}")
+            st.markdown(f"**Previous Close:** ${stock_info['previous_close']}")
+            st.markdown(f"**Earnings Date:** {stock_info['earnings_date']}")
 
         st.divider()
 
-        st.markdown("### Earnings Per Share Input")
-        total_eps = st.number_input("Total EPS (last 4 quarters)", value=0.0)
-        avg_eps = total_eps / 4
+        # --- Manual Inputs ---
+        eps_input = st.number_input("Enter Total EPS for Last 4 Quarters", min_value=0.0, step=0.01)
+        growth_input = st.number_input("Enter Expected Annual Growth Rate (%)", min_value=0.0, step=0.5)
 
-        growth_input = st.number_input("1-Year Growth Estimate (%)", value=10.0) / 100
-        discount_rate = get_discount_rate()
-        st.markdown(f"**Discount Rate (AAA Bond):** {discount_rate*100:.2f}%")
+        if eps_input and growth_input:
+            bond_rate = get_aaa_bond_rate()
+            intrinsic_value = calculate_intrinsic_value(eps_input, growth_input, bond_rate)
 
-        if st.button("Calculate Intrinsic Value"):
-            iv = calculate_intrinsic_value(avg_eps, growth_input, discount_rate)
-            st.success(f"Intrinsic Value per Share: **${iv:.2f}**")
+            st.markdown(f"### Intrinsic Value: ${intrinsic_value}")
 
-            # Fair Value Range
-            buy_price = iv * 0.8
-            st.markdown("### Fair Value Range")
-            st.markdown(f"**Buy Below:** ${buy_price:.2f} (20% Margin of Safety)")
-
-            if stock["price"] < buy_price:
-                st.success(f"The current price of ${stock['price']:.2f} is **undervalued** based on your margin of safety.")
+            # --- Fair Value Range ---
+            buy_below = round(intrinsic_value * 0.8, 2)
+            if stock_info["price"] < buy_below:
+                st.success(f"**Buy Zone:** Current price is more than 20% below intrinsic value (${buy_below})")
             else:
-                st.warning(f"The current price of ${stock['price']:.2f} is **above** the buy threshold.")
+                st.warning(f"**Overvalued:** Price is not yet 20% below intrinsic value (${buy_below})")
 
-st.markdown("---")
-st.caption("Built with Streamlit | Data from Yahoo Finance and FRED")
+        # --- Earnings History ---
+        st.markdown("### Earnings History")
+        earnings_data = get_earnings_history_fmp(ticker_input, FMP_API_KEY)
+
+        if earnings_data:
+            df = pd.DataFrame([{
+                "Date": e.get("date", ""),
+                "EPS Actual": e.get("eps", "N/A"),
+                "EPS Estimate": e.get("epsEstimated", "N/A")
+            } for e in earnings_data])
+            st.dataframe(df)
+        else:
+            st.info("No earnings history available.")

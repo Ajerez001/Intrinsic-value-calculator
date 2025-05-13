@@ -21,7 +21,6 @@ def fetch_stock_info(ticker):
         change = current_price - previous_close
         percent_change = (change / previous_close) * 100 if previous_close else 0
 
-        # Safely get earnings date
         earnings_date = "N/A"
         try:
             cal = info.get("earningsDate")
@@ -76,6 +75,20 @@ if ticker_input:
             st.subheader(f"{stock['name']} ({stock['ticker']})")
             st.markdown(f"**Price:** ${stock['price']:.2f} ({stock['percent_change']:+.2f}%)")
             st.markdown(f"**Next Earnings Date:** {stock['earnings_date']}")
+
+        # Earnings History Table
+        st.markdown("### Earnings History")
+        try:
+            ed = yf.Ticker(ticker_input).earnings_dates
+            if not ed.empty:
+                ed = ed.head(6)
+                ed = ed[["EPS Actual", "EPS Estimate", "Surprise(%)"]]
+                ed.columns = ["EPS Actual", "EPS Estimate", "Surprise (%)"]
+                st.dataframe(ed)
+            else:
+                st.info("No recent earnings history available.")
+        except Exception as e:
+            st.error(f"Error loading earnings history: {e}")
 
         st.divider()
 

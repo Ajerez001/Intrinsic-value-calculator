@@ -1,93 +1,93 @@
 import streamlit as st
 import yfinance as yf
-from yahoo_fin import stock_info as si
+import pandas as pd
+import datetime
 from fredapi import Fred
 
-# Set your FRED API key
+# Set your FRED API Key
 FRED_API_KEY = "ef227271f5aef3df5c1a8970d24aabc2"
 fred = Fred(api_key=FRED_API_KEY)
 
-def get_aaa_corp_bond_rate():
-    try:
-        data = fred.get_series_latest_release('AAA')
-        return round(data[-1] / 100, 4)
-    except Exception as e:
-        st.error(f"Error loading AAA corporate bond rate: {e}")
-        return None
-
-def calculate_intrinsic_value(eps, growth_rate, discount_rate, years=10):
-    intrinsic_value_per_share = 0
-    for year in range(1, years + 1):
-        future_eps = eps * ((1 + growth_rate) ** year)
-        discounted_eps = future_eps / ((1 + discount_rate) ** year)
-        intrinsic_value_per_share += discounted_eps
-    return round(intrinsic_value_per_share, 2)
-
+st.set_page_config(page_title="Intrinsic Value Calculator", layout="centered")
 st.title("Intrinsic Value Calculator")
 
-# ONE input box for user input
-user_input = st.text_input("Enter stock ticker or full company name")
+# Input for Ticker or Company Name
+user_input = st.text_input("Enter Company Ticker or Name (e.g., AAPL or Apple)", "").strip()
 
-ticker = None
+# EPS & Growth Inputs
+eps_input = st.number_input("Enter total EPS from last 4 quarters (e.g. 2.99)", min_value=0.0, format="%.2f")
+growth_input = st.number_input("Enter estimated annual growth rate (e.g. 0.08 for 8%)", min_value=0.0, format="%.4f")
 
+# Fetch AAA corporate bond rate
+try:
+    aaa_yield = fred.get_series_latest_release('AAA')[-1]
+except Exception as e:
+    st.error(f"Error fetching AAA bond rate: {e}")
+    aaa_yield = 0.0545  # fallback value
+st.write(f"AAA Corporate Bond Rate: **{aaa_yield:.2%}**")
+
+# Calculate intrinsic value
+def calculate_intrinsic_value(eps, growth, discount_rate):
+    try:
+        intrinsic_value = eps * (8.5 + 2 * (growth * 100)) * 4.4 / (discount_rate * 100)
+        return intrinsic_value
+    except ZeroDivisionError:
+        return 0
+
+# Process ticker input
 if user_input:
     try:
-        # Try loading as ticker first
-        stock = yf.Ticker(user_input)
-        info = stock.info
-        if not info or "shortName" not in info:
-            raise ValueError("Invalid ticker symbol")
+        ticker_obj = yf.Ticker(user_input)
+        info = ticker_obj.info
+        company_name = info.get("longName") or user_input.upper()
+        current_price = ticker_obj.history(period="1d")["Close"].iloc[-1]
 
-        ticker = user_input.upper()
+        st.subheader(f"{company_name} ({user_input.upper()})")
+        st.write(f"Current Price: **${current_price:.2f}**")
 
-    except Exception:
-        try:
-            # Fallback: try to find ticker by company name using yahoo_fin
-            search_results = si.tickers_nasdaq()
-            matched = [t for t in search_results if user_input.lower() in t.lower()]
-            if matched:
-                ticker = matched[0].upper()
-                stock = yf.Ticker(ticker)
-                info = stock.info
-            else:
-                st.error("Company name not found.")
-        except Exception as e:
-            st.error(f"Error searching for company: {e}")
+        if eps_input > 0 and growth_input > 0:
+            intrinsic_value = calculate_intrinsic_value(eps_input, growth_input, aaa_yield * 100)
+            st.success(f"Intrinsic Value: **${intrinsic_value:.2f}**")
 
-if ticker:
-    try:
-        info = yf.Ticker(ticker).info
-        st.subheader(f"{info.get('shortName', '')} ({ticker})")
-        st.write(f"**Current Price:** ${info.get('currentPrice', 'N/A')}")
+            # Fair Value Range (20% Margin of Safety)
+            margin_price = intrinsic_value * 0.8
+            st.write(f"Buy if price is below: **${margin_price:.2f}**")
 
-        earnings_date = info.get("earningsDate")
-        if earnings_date:
-            st.write(f"**Next Earnings Date:** {earnings_date[0]}")
+            # Save Evaluation
+            if st.button("Save Evaluation"):
+                row = {
+                    "Date": datetime.date.today(),
+                    "Ticker": user_input.upper(),
+                    "Company": company_name,
+                    "EPS (TTM)": eps_input,
+                    "Growth Rate": growth_input,
+                    "AAA Yield": aaa_yield,
+                    "Intrinsic Value": intrinsic_value,
+                    "Current Price": current_price,
+                    "Buy Below (20% MoS)": margin_price
+                }
+                try:
+                    df_existing = pd.read_csv("saved_evaluations.csv")
+                    df_new = pd.DataFrame([row])
+                    df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+                except FileNotFoundError:
+                    df_combined = pd.DataFrame([row])
+
+                df_combined.to_csv("saved_evaluations.csv", index=False)
+                st.success("Evaluation saved to `saved_evaluations.csv`")
+
         else:
-            st.write("**Next Earnings Date:** N/A")
-
-        eps_input = st.number_input("Enter total EPS from last 4 quarters", min_value=0.0, value=2.99)
-        growth_input_pct = st.number_input("Expected annual EPS growth rate (%)", min_value=0.0, max_value=100.0, value=8.0)
-        growth_input = growth_input_pct / 100
-
-        discount_rate = get_aaa_corp_bond_rate()
-        if discount_rate:
-            st.write(f"**Discount Rate (AAA Corporate Bond):** {discount_rate * 100:.2f}%")
-
-            intrinsic_value = calculate_intrinsic_value(eps_input, growth_input, discount_rate)
-            st.success(f"**Intrinsic Value (per share):** ${intrinsic_value}")
-
-            fair_value_threshold = intrinsic_value * 0.8
-            st.info(f"**Buy Price (20% Margin of Safety):** ${fair_value_threshold:.2f}")
-
-            current_price = info.get("currentPrice")
-            if current_price:
-                if current_price < fair_value_threshold:
-                    st.success("This stock is trading at or below its fair value range.")
-                else:
-                    st.warning("This stock is not currently trading at a discount.")
-        else:
-            st.error("Discount rate unavailable.")
+            st.info("Please enter valid EPS and growth rate.")
 
     except Exception as e:
-        st.error(f"Final error: {e}")
+        st.error(f"Error fetching stock info: {e}")
+
+# View Saved Evaluations
+st.markdown("---")
+st.subheader("Saved Evaluations")
+
+try:
+    df_saved = pd.read_csv("saved_evaluations.csv")
+    st.dataframe(df_saved, use_container_width=True)
+except FileNotFoundError:
+    st.info("No saved evaluations found yet.")

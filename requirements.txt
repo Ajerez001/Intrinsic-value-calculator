@@ -6,3 +6,4 @@ plotly
 requests
 fredapi
 yahoo_fin
+request

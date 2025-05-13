@@ -27,10 +27,12 @@ def fetch_stock_info(ticker):
         percent_change = (daily_change / previous_close) * 100 if previous_close else 0
 
         earnings = stock.calendar
-        if not earnings.empty:
-            earnings_date = earnings.loc['Earnings Date'][0].strftime('%Y-%m-%d')
-        else:
-            earnings_date = "N/A"
+        earnings_date = "N/A"
+        try:
+            if not earnings.empty and 'Earnings Date' in earnings.index:
+                earnings_date = earnings.loc['Earnings Date'][0].strftime('%Y-%m-%d')
+        except:
+            pass
 
         return {
             "name": name,

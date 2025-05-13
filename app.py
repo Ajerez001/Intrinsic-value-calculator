@@ -2,6 +2,7 @@ import streamlit as st
 import yfinance as yf
 from fredapi import Fred
 
+# FRED API Key
 FRED_API_KEY = "ef227271f5aef3df5c1a8970d24aabc2"
 
 st.set_page_config(page_title="Intrinsic Value Calculator", layout="centered")
@@ -20,7 +21,7 @@ def fetch_stock_info(ticker):
         change = current_price - previous_close
         percent_change = (change / previous_close) * 100 if previous_close else 0
 
-        # Safely fetch earnings date
+        # Safely get earnings date
         earnings_date = "N/A"
         try:
             cal = info.get("earningsDate")
@@ -47,7 +48,6 @@ def fetch_stock_info(ticker):
 def get_discount_rate():
     try:
         fred = Fred(api_key=FRED_API_KEY)
-        # Use Moody's Seasoned Aaa Corporate Bond Yield [AAA]
         rate = fred.get_series_latest_release('AAA').iloc[-1] / 100
         return round(rate, 4)
     except:
@@ -90,18 +90,6 @@ if ticker_input:
         if st.button("Calculate Intrinsic Value"):
             iv = calculate_intrinsic_value(avg_eps, growth_input, discount_rate)
             st.success(f"Intrinsic Value per Share: **${iv:.2f}**")
-
-        with st.expander("Options Selling Decision Panel"):
-            iv_input = st.number_input("Implied Volatility (IV %)", value=30.0)
-            beta = st.number_input("Beta", value=1.0)
-            expected_move = st.number_input("Expected Move ($)", value=5.0)
-            premium = st.number_input("Put Option Premium ($)", value=1.50)
-
-            st.markdown("Use this to assess if selling a put makes sense.")
-            if premium >= 1.5 and iv_input >= 30:
-                st.success("Conditions are favorable for selling puts.")
-            else:
-                st.warning("Consider waiting for higher IV or premium.")
 
 st.markdown("---")
 st.caption("Built with Streamlit | Data from Yahoo Finance and FRED")

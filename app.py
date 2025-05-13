@@ -1,4 +1,4 @@
-import streamlit as st
+ import streamlit as st
 import yfinance as yf
 from fredapi import Fred
 
@@ -82,9 +82,13 @@ if ticker_input:
             ed = yf.Ticker(ticker_input).earnings_dates
             if not ed.empty:
                 ed = ed.head(6)
-                ed = ed[["EPS Actual", "EPS Estimate", "Surprise(%)"]]
-                ed.columns = ["EPS Actual", "EPS Estimate", "Surprise (%)"]
-                st.dataframe(ed)
+                required_cols = ["EPS Actual", "EPS Estimate", "Surprise(%)"]
+                if all(col in ed.columns for col in required_cols):
+                    ed = ed[required_cols]
+                    ed.columns = ["EPS Actual", "EPS Estimate", "Surprise (%)"]
+                    st.dataframe(ed)
+                else:
+                    st.info("Earnings history data not available for this ticker.")
             else:
                 st.info("No recent earnings history available.")
         except Exception as e:

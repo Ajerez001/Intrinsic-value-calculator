@@ -3,23 +3,27 @@ import yfinance as yf
 import requests
 import pandas as pd
 
-# --- Constants ---
+# --- API Keys ---
 FRED_API_KEY = "ef227271f5aef3df5c1a8970d24aabc2"
 FMP_API_KEY = "ZYWFtyBgxO0qoNNAMMiCDDc2TIdoIQWt"
 
-# --- Get AAA Corporate Bond Rate ---
+# --- Function to Get AAA Corporate Bond Rate ---
 def get_aaa_bond_rate():
     url = f"https://api.stlouisfed.org/fred/series/observations?series_id=DAAA&api_key={FRED_API_KEY}&file_type=json"
     try:
         response = requests.get(url)
-        data = response.json()
-        last_entry = data["observations"][-1]
-        return float(last_entry["value"]) / 100
+        if response.status_code == 200:
+            data = response.json()
+            observations = data.get("observations", [])
+            for obs in reversed(observations):
+                value = obs.get("value")
+                if value and value != ".":
+                    return float(value) / 100  # Convert percentage to decimal
     except Exception as e:
-        st.error(f"Error fetching bond rate: {e}")
-        return 0.04
+        st.error(f"Error fetching AAA bond rate: {e}")
+    return None
 
-# --- Intrinsic Value Calculation ---
+# --- Function to Calculate Intrinsic Value ---
 def calculate_intrinsic_value(eps, growth_rate, bond_rate):
     try:
         intrinsic_value = eps * (8.5 + 2 * growth_rate) * 4.4 / (bond_rate * 100)
@@ -28,7 +32,7 @@ def calculate_intrinsic_value(eps, growth_rate, bond_rate):
         st.error(f"Error in intrinsic value calculation: {e}")
         return 0
 
-# --- Fetch Stock Info ---
+# --- Function to Fetch Stock Information ---
 def get_stock_info(ticker):
     try:
         stock = yf.Ticker(ticker)
@@ -44,30 +48,29 @@ def get_stock_info(ticker):
         st.error(f"Error fetching stock info: {e}")
         return None
 
-# --- FMP Earnings History ---
+# --- Function to Fetch Earnings History from FMP ---
 def get_earnings_history_fmp(ticker, api_key):
     url = f"https://financialmodelingprep.com/api/v3/historical/earning_calendar/{ticker}?limit=6&apikey={api_key}"
     try:
         response = requests.get(url)
         if response.status_code == 200:
             return response.json()
-        return None
     except Exception as e:
         st.error(f"Error loading earnings history: {e}")
-        return None
+    return None
 
-# --- Streamlit UI ---
+# --- Streamlit App Configuration ---
 st.set_page_config(page_title="Intrinsic Value Calculator", layout="wide")
-st.title("Intrinsic Value Calculator")
+st.title("📈 Intrinsic Value Calculator")
 
-# --- Input Section ---
+# --- User Input for Stock Ticker ---
 ticker_input = st.text_input("Enter Stock Ticker (e.g., AAPL)", value="AAPL").upper()
 
-# --- Show Stock Info ---
 if ticker_input:
     stock_info = get_stock_info(ticker_input)
 
     if stock_info:
+        # --- Display Stock Information ---
         col1, col2 = st.columns([1, 5])
         with col1:
             if stock_info["logo_url"]:
@@ -80,25 +83,28 @@ if ticker_input:
 
         st.divider()
 
-        # --- Manual Inputs ---
+        # --- Manual Inputs for EPS and Growth Rate ---
         eps_input = st.number_input("Enter Total EPS for Last 4 Quarters", min_value=0.0, step=0.01)
         growth_input = st.number_input("Enter Expected Annual Growth Rate (%)", min_value=0.0, step=0.5)
 
         if eps_input and growth_input:
             bond_rate = get_aaa_bond_rate()
-            intrinsic_value = calculate_intrinsic_value(eps_input, growth_input, bond_rate)
+            if bond_rate:
+                st.markdown(f"**AAA Corporate Bond Rate:** {bond_rate:.2%}")
+                intrinsic_value = calculate_intrinsic_value(eps_input, growth_input, bond_rate)
+                st.markdown(f"### 💰 Intrinsic Value: ${intrinsic_value}")
 
-            st.markdown(f"### Intrinsic Value: ${intrinsic_value}")
-
-            # --- Fair Value Range ---
-            buy_below = round(intrinsic_value * 0.8, 2)
-            if stock_info["price"] < buy_below:
-                st.success(f"**Buy Zone:** Current price is more than 20% below intrinsic value (${buy_below})")
+                # --- Fair Value Range with 20% Margin of Safety ---
+                buy_below = round(intrinsic_value * 0.8, 2)
+                if stock_info["price"] < buy_below:
+                    st.success(f"**Buy Zone:** Current price is more than 20% below intrinsic value (${buy_below})")
+                else:
+                    st.warning(f"**Overvalued:** Price is not yet 20% below intrinsic value (${buy_below})")
             else:
-                st.warning(f"**Overvalued:** Price is not yet 20% below intrinsic value (${buy_below})")
+                st.error("Unable to fetch AAA corporate bond rate.")
 
-        # --- Earnings History ---
-        st.markdown("### Earnings History")
+        # --- Display Earnings History ---
+        st.markdown("### 🗓️ Earnings History")
         earnings_data = get_earnings_history_fmp(ticker_input, FMP_API_KEY)
 
         if earnings_data:

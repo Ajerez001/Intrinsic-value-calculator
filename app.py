@@ -3,20 +3,18 @@ import yfinance as yf
 from yahoo_fin import stock_info as si
 from fredapi import Fred
 
-# FRED API Key
+# Set your FRED API key
 FRED_API_KEY = "ef227271f5aef3df5c1a8970d24aabc2"
 fred = Fred(api_key=FRED_API_KEY)
 
-# Function to get AAA corporate bond rate
 def get_aaa_corp_bond_rate():
     try:
         data = fred.get_series_latest_release('AAA')
-        return round(data[-1] / 100, 4)  # Convert to decimal
+        return round(data[-1] / 100, 4)
     except Exception as e:
         st.error(f"Error loading AAA corporate bond rate: {e}")
         return None
 
-# Intrinsic value calculation using EPS (per share)
 def calculate_intrinsic_value(eps, growth_rate, discount_rate, years=10):
     intrinsic_value_per_share = 0
     for year in range(1, years + 1):
@@ -25,65 +23,60 @@ def calculate_intrinsic_value(eps, growth_rate, discount_rate, years=10):
         intrinsic_value_per_share += discounted_eps
     return round(intrinsic_value_per_share, 2)
 
-# Streamlit App
 st.title("Intrinsic Value Calculator")
 
-# User input: Ticker symbol or Company Name
-input_type = st.selectbox("Choose input type:", ["Ticker Symbol", "Company Name"])
-if input_type == "Ticker Symbol":
-    ticker = st.text_input("Enter stock ticker (e.g., AAPL)").upper()
-else:
-    company_name = st.text_input("Enter full company name (e.g., Apple Inc.)")
+# ONE input box for user input
+user_input = st.text_input("Enter stock ticker or full company name")
 
-# Search for the ticker symbol based on company name if needed
-if input_type == "Company Name" and company_name:
+ticker = None
+
+if user_input:
     try:
-        # Use yahoo_fin to search for the ticker symbol by company name
-        ticker = si.get_live_price(company_name)
-        st.success(f"Found ticker for {company_name}: {ticker}")
-    except Exception as e:
-        st.error(f"Error searching for company: {e}")
+        # Try loading as ticker first
+        stock = yf.Ticker(user_input)
+        info = stock.info
+        if not info or "shortName" not in info:
+            raise ValueError("Invalid ticker symbol")
 
-# If ticker is entered, proceed
+        ticker = user_input.upper()
+
+    except Exception:
+        try:
+            # Fallback: try to find ticker by company name using yahoo_fin
+            search_results = si.tickers_nasdaq()
+            matched = [t for t in search_results if user_input.lower() in t.lower()]
+            if matched:
+                ticker = matched[0].upper()
+                stock = yf.Ticker(ticker)
+                info = stock.info
+            else:
+                st.error("Company name not found.")
+        except Exception as e:
+            st.error(f"Error searching for company: {e}")
+
 if ticker:
     try:
-        # Try fetching the stock info
-        stock = yf.Ticker(ticker)
-        info = stock.info
-        
-        # Check if the stock data is valid
-        if not info or "shortName" not in info or "currentPrice" not in info:
-            raise ValueError("Invalid or unknown ticker symbol.")
-        
-        # Display stock info
-        st.image(info.get("logo_url", ""), width=100)
+        info = yf.Ticker(ticker).info
         st.subheader(f"{info.get('shortName', '')} ({ticker})")
         st.write(f"**Current Price:** ${info.get('currentPrice', 'N/A')}")
-        
-        # Fetch the next earnings date
+
         earnings_date = info.get("earningsDate")
         if earnings_date:
             st.write(f"**Next Earnings Date:** {earnings_date[0]}")
         else:
             st.write("**Next Earnings Date:** N/A")
 
-        # EPS input
-        eps_input = st.number_input("Enter EPS total from last 4 quarters", min_value=0.0, value=2.99)
-
-        # Growth rate input in percentage
+        eps_input = st.number_input("Enter total EPS from last 4 quarters", min_value=0.0, value=2.99)
         growth_input_pct = st.number_input("Expected annual EPS growth rate (%)", min_value=0.0, max_value=100.0, value=8.0)
-        growth_input = growth_input_pct / 100  # Convert to decimal
+        growth_input = growth_input_pct / 100
 
-        # Get discount rate from AAA bond
         discount_rate = get_aaa_corp_bond_rate()
         if discount_rate:
             st.write(f"**Discount Rate (AAA Corporate Bond):** {discount_rate * 100:.2f}%")
 
-            # Calculate intrinsic value
             intrinsic_value = calculate_intrinsic_value(eps_input, growth_input, discount_rate)
             st.success(f"**Intrinsic Value (per share):** ${intrinsic_value}")
 
-            # Margin of safety (20%)
             fair_value_threshold = intrinsic_value * 0.8
             st.info(f"**Buy Price (20% Margin of Safety):** ${fair_value_threshold:.2f}")
 
@@ -94,9 +87,7 @@ if ticker:
                 else:
                     st.warning("This stock is not currently trading at a discount.")
         else:
-            st.error("Failed to retrieve discount rate.")
+            st.error("Discount rate unavailable.")
 
-    except ValueError as e:
-        st.error(f"Error: {e}")
     except Exception as e:
-        st.error(f"Error fetching stock info: {e}")
+        st.error(f"Final error: {e}")

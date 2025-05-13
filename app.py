@@ -1,101 +1,87 @@
 import streamlit as st
 import yfinance as yf
-from fredapi import Fred
 import pandas as pd
-import os
-import json
+import requests
+from fredapi import Fred
 
-# FRED API setup
+# Set page config
+st.set_page_config(page_title="Intrinsic Value Calculator", layout="centered")
+
+# FRED setup
 FRED_API_KEY = "ef227271f5aef3df5c1a8970d24aabc2"
 fred = Fred(api_key=FRED_API_KEY)
 
-# --- FUNCTIONS ---
-def get_aaa_corp_bond_rate():
+# Helper functions
+def get_aaa_bond_rate():
     try:
-        data = fred.get_series('AAA')
-        return round(data.dropna().iloc[-1], 2)
-    except Exception:
-        return 5.0  # fallback
+        rate = fred.get_series_latest_release('AAA')
+        latest_value = rate.iloc[-1]
+        return latest_value / 100  # convert to decimal
+    except Exception as e:
+        st.warning("Could not fetch AAA corporate bond rate from FRED.")
+        return 0.08  # default fallback
 
-def get_stock_info(ticker):
+def search_ticker(query):
+    url = f"https://query1.finance.yahoo.com/v1/finance/search?q={query}"
     try:
-        stock = yf.Ticker(ticker)
-        info = stock.info
-        return {
-            "longName": info.get("longName", ticker.upper()),
-            "currentPrice": info.get("currentPrice", 0.0),
-            "earningsDate": info.get("earningsDate", "N/A")
-        }
+        response = requests.get(url)
+        data = response.json()
+        for item in data.get("quotes", []):
+            if item.get("quoteType") == "EQUITY":
+                return item.get("symbol")
     except:
         return None
 
 def calculate_intrinsic_value(eps, growth_rate_percent, discount_rate, years=10):
-    growth_rate = growth_rate_percent / 100  # Convert percent to decimal
-    intrinsic_value = 0
-    for year in range(1, years + 1):
-        future_eps = eps * ((1 + growth_rate) ** year)
-        intrinsic_value += future_eps / ((1 + discount_rate) ** year)
-    return round(intrinsic_value, 2)
+    try:
+        growth_rate = growth_rate_percent / 100  # Convert 8% → 0.08
+        intrinsic_value = 0
+        for year in range(1, years + 1):
+            future_eps = eps * ((1 + growth_rate) ** year)
+            intrinsic_value += future_eps / ((1 + discount_rate) ** year)
+        return round(intrinsic_value, 2)
+    except:
+        return 0.0
 
-def save_evaluation(data):
-    path = "evaluations.json"
-    evaluations = []
-    if os.path.exists(path):
-        with open(path, "r") as f:
-            evaluations = json.load(f)
-    evaluations.append(data)
-    with open(path, "w") as f:
-        json.dump(evaluations, f, indent=2)
-
-def load_evaluations():
-    if os.path.exists("evaluations.json"):
-        with open("evaluations.json", "r") as f:
-            return json.load(f)
-    return []
-
-# --- UI ---
+# UI
 st.title("Intrinsic Value Calculator")
 
-ticker = st.text_input("Enter Stock Ticker Symbol (e.g., AAPL):")
+user_input = st.text_input("Enter Company Name or Ticker Symbol")
 
-if ticker:
-    stock_info = get_stock_info(ticker.strip().upper())
+if user_input:
+    ticker = search_ticker(user_input)
+    
+    if ticker:
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info
 
-    if stock_info:
-        st.subheader(stock_info["longName"])
-        st.write(f"Current Price: **${stock_info['currentPrice']}**")
-        st.write(f"Earnings Date: {stock_info['earningsDate']}")
+            company_name = info.get("shortName", ticker)
+            current_price = info.get("currentPrice", None)
 
-        eps = st.number_input("Total EPS (last 4 quarters)", min_value=0.0, step=0.01)
-        growth_rate_input = st.number_input("Expected Growth Rate (%)", min_value=0.0, step=0.01)
+            st.subheader(f"{company_name} ({ticker})")
+            if current_price:
+                st.write(f"**Current Price:** ${current_price}")
 
-        bond_rate = get_aaa_corp_bond_rate()
-        st.write(f"Discount Rate (AAA Corporate Bond): **{bond_rate}%**")
-        discount_rate = bond_rate / 100
+            # Manual EPS input
+            eps_total = st.number_input("Enter Total EPS for Last 4 Quarters", min_value=0.0, step=0.01)
 
-        if eps and growth_rate_input:
-            intrinsic_value = calculate_intrinsic_value(eps, growth_rate_input, discount_rate)
-            margin_price = round(intrinsic_value * 0.8, 2)
+            # Manual Growth Rate input
+            growth_rate_percent = st.number_input("Expected Growth Rate (%)", min_value=0.0, step=0.01)
 
-            st.success(f"Intrinsic Value: ${intrinsic_value}")
-            st.info(f"Buy Below: ${margin_price} (20% Margin of Safety)")
+            # Fetch Discount Rate
+            discount_rate = get_aaa_bond_rate()
+            st.write(f"**Discount Rate (AAA Corp Bond):** {discount_rate * 100:.2f}%")
 
-            if st.button("Save Evaluation"):
-                save_evaluation({
-                    "Ticker": ticker.upper(),
-                    "Company": stock_info["longName"],
-                    "EPS": eps,
-                    "Growth Rate (%)": growth_rate_input,
-                    "Discount Rate (%)": bond_rate,
-                    "Intrinsic Value": intrinsic_value,
-                    "Buy Below": margin_price
-                })
-                st.success("Saved!")
+            # Calculate intrinsic value
+            if eps_total > 0 and growth_rate_percent > 0:
+                intrinsic = calculate_intrinsic_value(eps_total, growth_rate_percent, discount_rate)
 
-# View saved evaluations
-if st.checkbox("View Saved Evaluations"):
-    saved = load_evaluations()
-    if saved:
-        st.dataframe(pd.DataFrame(saved))
+                margin_price = round(intrinsic * 0.8, 2)  # 20% margin of safety
+                st.success(f"**Intrinsic Value:** ${intrinsic}")
+                st.info(f"**Buy Below (20% Margin of Safety):** ${margin_price}")
+
+        except Exception as e:
+            st.error(f"Error fetching stock info: {e}")
     else:
-        st.info("No saved evaluations found.")
+        st.error("Error searching for ticker. Please check the name or symbol.")

@@ -91,5 +91,15 @@ if ticker_input:
             iv = calculate_intrinsic_value(avg_eps, growth_input, discount_rate)
             st.success(f"Intrinsic Value per Share: **${iv:.2f}**")
 
+            # Fair Value Range
+            buy_price = iv * 0.8
+            st.markdown("### Fair Value Range")
+            st.markdown(f"**Buy Below:** ${buy_price:.2f} (20% Margin of Safety)")
+
+            if stock["price"] < buy_price:
+                st.success(f"The current price of ${stock['price']:.2f} is **undervalued** based on your margin of safety.")
+            else:
+                st.warning(f"The current price of ${stock['price']:.2f} is **above** the buy threshold.")
+
 st.markdown("---")
 st.caption("Built with Streamlit | Data from Yahoo Finance and FRED")

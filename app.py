@@ -1,82 +1,123 @@
-import streamlit as st
+ import streamlit as st
 import yfinance as yf
-from fredapi import Fred
+import requests
 from datetime import datetime
+from fredapi import Fred
 
-# Load FRED API Key from secrets
-fred_api_key = st.secrets["FRED_API_KEY"]
-fred = Fred(api_key=fred_api_key)
+# Set your FRED API key here
+FRED_API_KEY = "ef227271f5aef3df5c1a8970d24aabc2"
 
-# App title
-st.title("Intrinsic Value Calculator with Options Snapshot")
+# Set page config
+st.set_page_config(page_title="Intrinsic Value Calculator", layout="centered")
 
-# Input box for ticker
-ticker_input = st.text_input("Enter Stock Ticker", "AAPL").upper()
+st.title("Intrinsic Value Calculator")
 
-# Function to fetch stock price and earnings date
-def get_stock_info(ticker):
+# ------------------ Function Definitions ------------------
+
+def fetch_stock_info(ticker):
+    stock = yf.Ticker(ticker)
+    info = stock.info
+
     try:
-        stock = yf.Ticker(ticker)
-        info = stock.info
-        price = info.get("currentPrice", "N/A")
-        earnings_date = stock.calendar.loc["Earnings Date"][0] if "Earnings Date" in stock.calendar.index else "N/A"
-        return price, earnings_date
-    except Exception as e:
-        st.error(f"Could not load data for {ticker}. Error: {e}")
-        return "N/A", "N/A"
+        logo_url = info.get("logo_url", "")
+        name = info.get("longName", ticker)
+        current_price = info.get("currentPrice", 0)
+        previous_close = info.get("previousClose", current_price)
+        daily_change = current_price - previous_close
+        percent_change = (daily_change / previous_close) * 100 if previous_close else 0
 
-# Get stock info
-if ticker_input:
-    current_price, earnings_date = get_stock_info(ticker_input)
-    st.subheader(f"{ticker_input} — ${current_price} {'(Earnings: ' + str(earnings_date.date()) + ')' if earnings_date != 'N/A' else ''}")
-
-# FRED AAA corporate bond yield
-def get_aaa_yield():
-    try:
-        yield_data = fred.get_series('AAA')
-        return round(float(yield_data.dropna().iloc[-1]), 2)
-    except Exception as e:
-        st.warning("Could not fetch AAA bond yield. Please check your FRED API key or internet connection.")
-        return None
-
-bond_rate = get_aaa_yield()
-if bond_rate:
-    st.markdown(f"**AAA Corporate Bond Yield:** {bond_rate}%")
-else:
-    bond_rate = st.number_input("Manually enter AAA bond yield (%)", min_value=0.0, step=0.01)
-
-# Manual input for EPS and growth rate
-eps_ttm = st.number_input("Enter Total EPS (last 4 quarters)", min_value=0.0, step=0.01)
-growth_rate = st.number_input("Enter Estimated Growth Rate (%)", min_value=0.0, step=0.1)
-
-# Valuation calculation
-def calculate_intrinsic_value(eps, growth, bond):
-    try:
-        g = growth / 100
-        r = bond / 100
-        intrinsic_value = eps * (8.5 + 2 * g) * (4.4 / r)
-        return round(intrinsic_value, 2)
-    except Exception:
-        return None
-
-if eps_ttm and growth_rate and bond_rate:
-    intrinsic_value = calculate_intrinsic_value(eps_ttm, growth_rate, bond_rate)
-
-    if current_price != "N/A":
-        diff = float(current_price) - intrinsic_value
-        pct = round((diff / intrinsic_value) * 100, 2)
-
-        if pct < -15:
-            color = "green"
-            valuation_status = "Undervalued"
-        elif -15 <= pct <= 15:
-            color = "gray"
-            valuation_status = "Fairly Valued"
+        earnings = stock.calendar
+        if not earnings.empty:
+            earnings_date = earnings.loc['Earnings Date'][0].strftime('%Y-%m-%d')
         else:
-            color = "red"
-            valuation_status = "Overvalued"
+            earnings_date = "N/A"
 
-        st.markdown(f"### Intrinsic Value: ${intrinsic_value}")
-        st.markdown(f"**Valuation Status:** <span style='color:{color}'>{valuation_status}</span>", unsafe_allow_html=True)
-    else:
-        st.markdown(f"### Intrinsic Value: ${intrinsic_value}")
+        return {
+            "name": name,
+            "ticker": ticker.upper(),
+            "price": current_price,
+            "change": daily_change,
+            "percent_change": percent_change,
+            "earnings_date": earnings_date,
+            "logo": logo_url
+        }
+    except Exception as e:
+        st.error(f"Error fetching stock info: {e}")
+        return None
+
+
+def get_fed_rate():
+    fred = Fred(api_key=FRED_API_KEY)
+    try:
+        rate = fred.get_series_latest_release('GS10').iloc[-1] / 100  # 10-Year Treasury Rate
+        return round(rate, 4)
+    except:
+        return 0.045  # fallback to 4.5%
+
+
+def calculate_intrinsic_value(eps_list, growth_rate, discount_rate, years=5):
+    avg_eps = sum(eps_list) / len(eps_list)
+    intrinsic_value = 0
+    for i in range(1, years + 1):
+        future_eps = avg_eps * ((1 + growth_rate) ** i)
+        intrinsic_value += future_eps / ((1 + discount_rate) ** i)
+    return round(intrinsic_value, 2)
+
+# ------------------ UI Layout ------------------
+
+ticker_input = st.text_input("Enter Stock Ticker", value="AAPL")
+
+if ticker_input:
+    stock_data = fetch_stock_info(ticker_input)
+
+    if stock_data:
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            if stock_data['logo']:
+                st.image(stock_data['logo'], width=60)
+        with col2:
+            st.subheader(f"{stock_data['name']} ({stock_data['ticker']})")
+            st.markdown(
+                f"**Price:** ${stock_data['price']:.2f} ({stock_data['percent_change']:+.2f}%)")
+            st.markdown(f"**Next Earnings Date:** {stock_data['earnings_date']}")
+
+        st.divider()
+
+        # EPS inputs
+        st.markdown("### EPS Actuals (last 4 quarters)")
+        eps_1 = st.number_input("EPS Q1", value=0.0)
+        eps_2 = st.number_input("EPS Q2", value=0.0)
+        eps_3 = st.number_input("EPS Q3", value=0.0)
+        eps_4 = st.number_input("EPS Q4", value=0.0)
+
+        eps_list = [eps_1, eps_2, eps_3, eps_4]
+
+        # Growth rate input
+        growth_input = st.number_input("1-Year Growth Estimate (%)", value=10.0) / 100
+
+        # Discount rate (FRED bond rate)
+        discount_rate = get_fed_rate()
+        st.markdown(f"**Discount Rate (10Y Treasury):** {discount_rate*100:.2f}%")
+
+        # Calculate intrinsic value
+        if st.button("Calculate Intrinsic Value"):
+            iv = calculate_intrinsic_value(eps_list, growth_input, discount_rate)
+            st.success(f"Intrinsic Value per Share: **${iv:.2f}**")
+
+        # Options selling panel
+        with st.expander("Options Selling Decision Panel"):
+            iv_input = st.number_input("Implied Volatility (IV %)", value=30.0)
+            beta = st.number_input("Beta", value=1.0)
+            expected_move = st.number_input("Expected Move ($)", value=5.0)
+            premium = st.number_input("Put Option Premium ($)", value=1.50)
+
+            st.markdown("This section can help guide your decision to sell a cash-secured put.")
+            if premium >= 1.5 and iv_input >= 30:
+                st.success("Conditions look favorable for selling puts.")
+            else:
+                st.warning("You may want to wait for higher premiums or IV.")
+
+# ------------------ Footer ------------------
+
+st.markdown("---")
+st.caption("Built with Streamlit | Data from Yahoo Finance and FRED")

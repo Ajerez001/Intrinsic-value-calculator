@@ -4,12 +4,9 @@ import requests
 from datetime import datetime
 from fredapi import Fred
 
-# Set your FRED API key here
 FRED_API_KEY = "ef227271f5aef3df5c1a8970d24aabc2"
 
-# Set page config
 st.set_page_config(page_title="Intrinsic Value Calculator", layout="centered")
-
 st.title("Intrinsic Value Calculator")
 
 # ------------------ Function Definitions ------------------
@@ -26,16 +23,15 @@ def fetch_stock_info(ticker):
         daily_change = current_price - previous_close
         percent_change = (daily_change / previous_close) * 100 if previous_close else 0
 
-        earnings_date = "N/A"
-        earnings = stock.calendar
-
-        if hasattr(earnings, "index") and "Earnings Date" in earnings.index:
-            try:
-                earnings_date_val = earnings.loc["Earnings Date"]
-                if hasattr(earnings_date_val[0], "strftime"):
-                    earnings_date = earnings_date_val[0].strftime('%Y-%m-%d')
-            except:
-                pass
+        # Pull next earnings date from earnings_dates instead of calendar
+        try:
+            earnings_dates = stock.earnings_dates
+            if not earnings_dates.empty:
+                next_earnings = earnings_dates.index[0].strftime('%Y-%m-%d')
+            else:
+                next_earnings = "N/A"
+        except:
+            next_earnings = "N/A"
 
         return {
             "name": name,
@@ -43,22 +39,20 @@ def fetch_stock_info(ticker):
             "price": current_price,
             "change": daily_change,
             "percent_change": percent_change,
-            "earnings_date": earnings_date,
+            "earnings_date": next_earnings,
             "logo": logo_url
         }
     except Exception as e:
         st.error(f"Error fetching stock info: {e}")
         return None
 
-
 def get_fed_rate():
     fred = Fred(api_key=FRED_API_KEY)
     try:
-        rate = fred.get_series_latest_release('GS10').iloc[-1] / 100  # 10-Year Treasury Rate
+        rate = fred.get_series_latest_release('GS10').iloc[-1] / 100
         return round(rate, 4)
     except:
-        return 0.045  # fallback to 4.5%
-
+        return 0.045
 
 def calculate_intrinsic_value(eps_list, growth_rate, discount_rate, years=5):
     avg_eps = sum(eps_list) / len(eps_list)
@@ -88,7 +82,6 @@ if ticker_input:
 
         st.divider()
 
-        # EPS inputs
         st.markdown("### EPS Actuals (last 4 quarters)")
         eps_1 = st.number_input("EPS Q1", value=0.0)
         eps_2 = st.number_input("EPS Q2", value=0.0)
@@ -97,19 +90,15 @@ if ticker_input:
 
         eps_list = [eps_1, eps_2, eps_3, eps_4]
 
-        # Growth rate input
         growth_input = st.number_input("1-Year Growth Estimate (%)", value=10.0) / 100
 
-        # Discount rate (FRED bond rate)
         discount_rate = get_fed_rate()
         st.markdown(f"**Discount Rate (10Y Treasury):** {discount_rate*100:.2f}%")
 
-        # Calculate intrinsic value
         if st.button("Calculate Intrinsic Value"):
             iv = calculate_intrinsic_value(eps_list, growth_input, discount_rate)
             st.success(f"Intrinsic Value per Share: **${iv:.2f}**")
 
-        # Options selling panel
         with st.expander("Options Selling Decision Panel"):
             iv_input = st.number_input("Implied Volatility (IV %)", value=30.0)
             beta = st.number_input("Beta", value=1.0)
@@ -121,8 +110,6 @@ if ticker_input:
                 st.success("Conditions look favorable for selling puts.")
             else:
                 st.warning("You may want to wait for higher premiums or IV.")
-
-# ------------------ Footer ------------------
 
 st.markdown("---")
 st.caption("Built with Streamlit | Data from Yahoo Finance and FRED")

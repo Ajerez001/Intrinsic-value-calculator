@@ -1,85 +1,82 @@
 import streamlit as st
 import yfinance as yf
-import requests
-from datetime import datetime
-import plotly.graph_objs as go
 from fredapi import Fred
+from datetime import datetime
 
-st.set_page_config(page_title="Intrinsic Value Calculator", layout="wide")
-st.title("Intrinsic Value Calculator")
-
-# Ticker input
-ticker = st.text_input("Enter stock ticker (e.g., AAPL)", value="AAPL").upper()
-
-# FRED bond rate
+# Load FRED API Key from secrets
 fred_api_key = st.secrets["FRED_API_KEY"]
 fred = Fred(api_key=fred_api_key)
-try:
-    bond_rate = fred.get_series("GS10")[-1] / 100
-    st.success(f"10Y Bond Rate (FRED): {bond_rate:.2%}")
-except:
-    bond_rate = None
-    st.warning("Failed to fetch bond rate from FRED. Please enter it manually below.")
 
-if bond_rate is None:
-    bond_rate = st.number_input("Enter bond rate manually (e.g., 0.04 for 4%)", min_value=0.0, max_value=1.0, step=0.01)
+# App title
+st.title("Intrinsic Value Calculator with Options Snapshot")
 
-# Stock Data
-try:
-    stock = yf.Ticker(ticker)
-    info = stock.info
-    price = info["regularMarketPrice"]
-    previous_close = info["previousClose"]
-    price_change = price - previous_close
-    change_percent = (price_change / previous_close) * 100
+# Input box for ticker
+ticker_input = st.text_input("Enter Stock Ticker", "AAPL").upper()
 
-    earnings_date = "N/A"
+# Function to fetch stock price and earnings date
+def get_stock_info(ticker):
     try:
-        earnings_calendar = stock.calendar
-        if not earnings_calendar.empty:
-            earnings_raw = earnings_calendar.loc["Earnings Date"]
-            earnings_date = earnings_raw[0].strftime("%b %d, %Y") if not earnings_raw.empty else "N/A"
-    except:
-        pass
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        price = info.get("currentPrice", "N/A")
+        earnings_date = stock.calendar.loc["Earnings Date"][0] if "Earnings Date" in stock.calendar.index else "N/A"
+        return price, earnings_date
+    except Exception as e:
+        st.error(f"Could not load data for {ticker}. Error: {e}")
+        return "N/A", "N/A"
 
-    st.markdown(f"## {info['shortName']} ({ticker})")
-    if "website" in info:
-        st.image(f"https://logo.clearbit.com/{info['website']}", width=100)
-    st.metric("Stock Price", f"${price:.2f}", f"{price_change:+.2f} ({change_percent:+.2f}%)")
-    st.markdown(f"**Earnings Date:** {earnings_date}")
+# Get stock info
+if ticker_input:
+    current_price, earnings_date = get_stock_info(ticker_input)
+    st.subheader(f"{ticker_input} — ${current_price} {'(Earnings: ' + str(earnings_date.date()) + ')' if earnings_date != 'N/A' else ''}")
 
-except Exception as e:
-    st.error(f"Could not load data for {ticker}. Error: {str(e)}")
+# FRED AAA corporate bond yield
+def get_aaa_yield():
+    try:
+        yield_data = fred.get_series('AAA')
+        return round(float(yield_data.dropna().iloc[-1]), 2)
+    except Exception as e:
+        st.warning("Could not fetch AAA bond yield. Please check your FRED API key or internet connection.")
+        return None
 
-# Manual Inputs
-st.header("Manual Inputs")
-eps_input = st.number_input("Enter combined EPS for last 4 quarters", min_value=0.0, step=0.01)
-growth_rate_input = st.number_input("Enter expected annual growth rate (e.g., 0.12 for 12%)", min_value=0.0, step=0.01)
-
-# Intrinsic Value
-if eps_input > 0 and growth_rate_input > 0 and bond_rate > 0:
-    intrinsic_value = eps_input * (8.5 + 2 * growth_rate_input * 100) * (4.4 / (bond_rate * 100))
-    st.subheader("Intrinsic Value Result")
-    if price < intrinsic_value * 0.8:
-        st.markdown(f"<h3 style='color:green;'>Undervalued: ${intrinsic_value:.2f}</h3>", unsafe_allow_html=True)
-    elif price > intrinsic_value * 1.2:
-        st.markdown(f"<h3 style='color:red;'>Overvalued: ${intrinsic_value:.2f}</h3>", unsafe_allow_html=True)
-    else:
-        st.markdown(f"<h3 style='color:gray;'>Fairly Valued: ${intrinsic_value:.2f}</h3>", unsafe_allow_html=True)
+bond_rate = get_aaa_yield()
+if bond_rate:
+    st.markdown(f"**AAA Corporate Bond Yield:** {bond_rate}%")
 else:
-    st.info("Please fill in all inputs to calculate intrinsic value.")
+    bond_rate = st.number_input("Manually enter AAA bond yield (%)", min_value=0.0, step=0.01)
 
-# Chart
-try:
-    hist = stock.history(period="6mo")
-    fig = go.Figure(data=[go.Candlestick(
-        x=hist.index,
-        open=hist["Open"],
-        high=hist["High"],
-        low=hist["Low"],
-        close=hist["Close"]
-    )])
-    fig.update_layout(title=f"{ticker} Price Chart (6M)", xaxis_title="Date", yaxis_title="Price", xaxis_rangeslider_visible=False)
-    st.plotly_chart(fig, use_container_width=True)
-except:
-    st.warning("Could not load chart.")
+# Manual input for EPS and growth rate
+eps_ttm = st.number_input("Enter Total EPS (last 4 quarters)", min_value=0.0, step=0.01)
+growth_rate = st.number_input("Enter Estimated Growth Rate (%)", min_value=0.0, step=0.1)
+
+# Valuation calculation
+def calculate_intrinsic_value(eps, growth, bond):
+    try:
+        g = growth / 100
+        r = bond / 100
+        intrinsic_value = eps * (8.5 + 2 * g) * (4.4 / r)
+        return round(intrinsic_value, 2)
+    except Exception:
+        return None
+
+if eps_ttm and growth_rate and bond_rate:
+    intrinsic_value = calculate_intrinsic_value(eps_ttm, growth_rate, bond_rate)
+
+    if current_price != "N/A":
+        diff = float(current_price) - intrinsic_value
+        pct = round((diff / intrinsic_value) * 100, 2)
+
+        if pct < -15:
+            color = "green"
+            valuation_status = "Undervalued"
+        elif -15 <= pct <= 15:
+            color = "gray"
+            valuation_status = "Fairly Valued"
+        else:
+            color = "red"
+            valuation_status = "Overvalued"
+
+        st.markdown(f"### Intrinsic Value: ${intrinsic_value}")
+        st.markdown(f"**Valuation Status:** <span style='color:{color}'>{valuation_status}</span>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"### Intrinsic Value: ${intrinsic_value}")

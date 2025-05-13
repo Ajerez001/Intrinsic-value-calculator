@@ -1,11 +1,12 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-from fredapi import Fred
+import requests
 import json
 import os
+from fredapi import Fred
 
-# API key setup
+# FRED API Key
 FRED_API_KEY = "ef227271f5aef3df5c1a8970d24aabc2"
 fred = Fred(api_key=FRED_API_KEY)
 
@@ -14,6 +15,18 @@ SAVE_FILE = "saved_valuations.json"
 st.set_page_config(page_title="Intrinsic Value Calculator", layout="centered")
 st.title("Intrinsic Value Calculator")
 
+# Function to search for ticker from company name using Yahoo autocomplete
+def search_ticker(query):
+    url = f"https://query1.finance.yahoo.com/v1/finance/search?q={query}"
+    try:
+        response = requests.get(url)
+        data = response.json()
+        if "quotes" in data and len(data["quotes"]) > 0:
+            return data["quotes"][0]["symbol"]
+    except Exception as e:
+        st.error(f"Error searching for ticker: {e}")
+    return ""
+
 # Input box for ticker or company name
 user_input = st.text_input("Enter stock ticker or company name", "").strip()
 
@@ -21,10 +34,14 @@ ticker = ""
 company_name = ""
 
 if user_input:
+    # Try fetching as ticker, else search
     try:
-        data = yf.Ticker(user_input)
+        ticker = search_ticker(user_input) if not user_input.isupper() else user_input
+        if not ticker:
+            raise ValueError("Ticker not found.")
+        data = yf.Ticker(ticker)
         info = data.info
-        ticker = info.get("symbol", user_input.upper())
+        ticker = info.get("symbol", ticker.upper())
         company_name = info.get("shortName", "")
         current_price = info["currentPrice"]
         logo_url = info.get("logo_url", "")
@@ -35,7 +52,7 @@ if user_input:
         st.error(f"Error fetching stock info: {e}")
         ticker = ""
 
-# Manual entry fields
+# Manual EPS total input
 eps_total = st.number_input("Enter total EPS for the last 4 quarters (e.g., 2.99)", min_value=0.0, format="%.2f")
 growth_rate = st.number_input("Enter estimated annual growth rate (e.g., 8% = 0.08)", min_value=0.0, format="%.4f")
 

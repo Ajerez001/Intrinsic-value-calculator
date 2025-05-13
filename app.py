@@ -27,21 +27,43 @@ def calculate_intrinsic_value(eps, growth_rate, discount_rate, years=10):
 # Streamlit App
 st.title("Intrinsic Value Calculator")
 
-ticker = st.text_input("Enter stock ticker (e.g., AAPL)").upper()
+# User input: Ticker symbol or Company Name
+input_type = st.selectbox("Choose input type:", ["Ticker Symbol", "Company Name"])
+if input_type == "Ticker Symbol":
+    ticker = st.text_input("Enter stock ticker (e.g., AAPL)").upper()
+else:
+    company_name = st.text_input("Enter full company name (e.g., Apple Inc.)")
 
+# Search for the ticker symbol based on company name if needed
+if input_type == "Company Name" and company_name:
+    try:
+        # Perform the search
+        search_results = yf.search(company_name)
+        if search_results:
+            ticker = search_results[0]['symbol']
+            st.success(f"Found ticker for {company_name}: {ticker}")
+        else:
+            st.error(f"Could not find ticker for {company_name}. Please check the name or try a ticker symbol.")
+    except Exception as e:
+        st.error(f"Error searching for company: {e}")
+
+# If ticker is entered, proceed
 if ticker:
     try:
+        # Try fetching the stock info
         stock = yf.Ticker(ticker)
         info = stock.info
-
-        # Validate ticker
-        if not info or "shortName" not in info:
+        
+        # Check if the stock data is valid
+        if not info or "shortName" not in info or "currentPrice" not in info:
             raise ValueError("Invalid or unknown ticker symbol.")
-
+        
         # Display stock info
         st.image(info.get("logo_url", ""), width=100)
         st.subheader(f"{info.get('shortName', '')} ({ticker})")
         st.write(f"**Current Price:** ${info.get('currentPrice', 'N/A')}")
+        
+        # Fetch the next earnings date
         earnings_date = info.get("earningsDate")
         if earnings_date:
             st.write(f"**Next Earnings Date:** {earnings_date[0]}")
@@ -51,7 +73,7 @@ if ticker:
         # EPS input
         eps_input = st.number_input("Enter EPS total from last 4 quarters", min_value=0.0, value=2.99)
 
-        # Growth rate input in %
+        # Growth rate input in percentage
         growth_input_pct = st.number_input("Expected annual EPS growth rate (%)", min_value=0.0, max_value=100.0, value=8.0)
         growth_input = growth_input_pct / 100  # Convert to decimal
 
@@ -77,5 +99,7 @@ if ticker:
         else:
             st.error("Failed to retrieve discount rate.")
 
+    except ValueError as e:
+        st.error(f"Error: {e}")
     except Exception as e:
         st.error(f"Error fetching stock info: {e}")

@@ -5,3 +5,4 @@ beautifulsoup4
 plotly
 requests
 fredapi
+yahoo_fin

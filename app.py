@@ -1,5 +1,6 @@
 import streamlit as st
 import yfinance as yf
+from yahoo_fin import stock_info as si
 from fredapi import Fred
 
 # FRED API Key
@@ -37,13 +38,9 @@ else:
 # Search for the ticker symbol based on company name if needed
 if input_type == "Company Name" and company_name:
     try:
-        # Perform the search
-        search_results = yf.search(company_name)
-        if search_results:
-            ticker = search_results[0]['symbol']
-            st.success(f"Found ticker for {company_name}: {ticker}")
-        else:
-            st.error(f"Could not find ticker for {company_name}. Please check the name or try a ticker symbol.")
+        # Use yahoo_fin to search for the ticker symbol by company name
+        ticker = si.get_live_price(company_name)
+        st.success(f"Found ticker for {company_name}: {ticker}")
     except Exception as e:
         st.error(f"Error searching for company: {e}")
 
